@@ -15,13 +15,34 @@
     .header {
         display: flex;
         align-items: center;
-        gap: 8px;
-        padding-bottom: 10px;
+        justify-content: space-between;
+        padding-bottom: 8px;
         border-bottom: 1px solid #1c2840;
         margin-bottom: 10px;
     }
+    .brand-wrap { display: flex; align-items: center; gap: 8px; }
     .brand { font-weight: 700; font-size: 1.05rem; color: #22c1dc; }
     .tagline { font-size: 0.7rem; color: #6b7d99; }
+
+    /* Enterprise connection badge */
+    .enterprise-badge {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        background: #0e1726;
+        padding: 3px 8px;
+        border-radius: 12px;
+        font-size: 0.68rem;
+        color: #94a3b8;
+        border: 1px solid #1e293b;
+    }
+    .status-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #10b981;
+    }
+    .status-dot.offline { background: #ef4444; }
 
     .url-box {
         background: #0e1726;
@@ -113,6 +134,25 @@
     .btn-rescan:hover     { background:#179c54; }
     .btn-rescan:disabled  { background:#2a3a52; cursor:not-allowed; }
 
+    /* Central Dashboard Button */
+    .btn-dashboard {
+        width: 100%;
+        background: #1e293b;
+        color: #38bdf8;
+        border: 1px solid #334155;
+        padding: 7px;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        cursor: pointer;
+        margin-top: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+    }
+    .btn-dashboard:hover { background: #334155; }
+
     /* Recently scanned */
     .recent-section { margin-top:10px; }
     .recent-toggle {
@@ -128,7 +168,7 @@
         background:#0e1726; font-size:0.72rem; cursor:pointer;
     }
     .recent-item:hover { background:#16263b; }
-    .rec ent-url { flex:1; color:#7fc8ff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .recent-url { flex:1; color:#7fc8ff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .recent-verdict { flex-shrink:0; font-weight:700; font-size:0.68rem; }
     .rv-phishing  { color:#ff6b7a; }
     .rv-suspicious{ color:#ffc107; }
@@ -157,25 +197,31 @@
 <body>
 
 <div class="header">
-    <div style="font-size:1.4rem;">🛡️</div>
-    <div>
-        <div class="brand">PhishGuard</div>
-        <div class="tagline">AI-Powered Phishing Detection</div>
+    <div class="brand-wrap">
+        <div style="font-size:1.3rem;">🛡️</div>
+        <div>
+            <div class="brand">PhishGuard</div>
+            <div class="tagline">Enterprise Endpoint Defense</div>
+        </div>
+    </div>
+    <div class="enterprise-badge" id="clientStatusBadge" title="Central Enterprise Security Server status">
+        <span class="status-dot" id="serverDot"></span>
+        <span id="clientIdLabel">CLIENT-LOCAL</span>
     </div>
 </div>
 
-<div class="url-box" id="currentUrl">Loading...</div>
+<div class="url-box" id="currentUrl">Loading URL...</div>
 
 <div id="verdictArea" class="verdict-card vc-loading">
     <div class="spinner"></div>
-    <div style="margin-top:6px;font-size:0.85rem;color:#9aabc4;">Scanning page...</div>
+    <div style="margin-top:6px;font-size:0.85rem;color:#9aabc4;">Evaluating threat indicators...</div>
 </div>
 
-<!-- Hidden — still runs in background -->
+<!-- Hidden container for background threat intel if needed -->
 <div id="threatIntelArea" style="display:none;"></div>
 
 <div id="reasonsArea" style="display:none;">
-    <div class="reasons-title">Top Reasons</div>
+    <div class="reasons-title">Specific Threat Factors</div>
     <div id="reasonsList"></div>
 </div>
 
@@ -194,20 +240,21 @@
     <button class="btn-untrust" id="untrustBtn" style="display:none;">Remove</button>
 </div>
 
-<button id="rescanBtn" class="btn-rescan">🔄 Re-scan Now</button>
+<button id="rescanBtn" class="btn-rescan">🔄 Re-scan Page Now</button>
+<button id="dashboardBtn" class="btn-dashboard">📊 Open Central Admin Console</button>
 
-<!-- Recently scanned (Feature 19) -->
+<!-- Recently scanned -->
 <div class="recent-section" id="recentSection" style="display:none;">
     <button class="recent-toggle" id="recentToggleBtn">
-        <span>🕘 Recently scanned</span>
+        <span>🕘 Recent Security Events</span>
         <span id="recentChevron">▾</span>
     </button>
     <div id="recentList" class="recent-list" style="display:none;"></div>
 </div>
 
 <div class="footer">
-    <span>PhishGuard v1.2</span>
-    <button class="sound-btn" id="soundBtn" title="Toggle sound alerts">🔔</button>
+    <span id="versionLabel">PhishGuard v2.0 Enterprise</span>
+    <button class="sound-btn" id="soundBtn" title="Toggle audio alert alerts">🔔</button>
 </div>
 
 <script src="popup.js"></script>

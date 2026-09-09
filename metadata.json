@@ -1,0 +1,6 @@
+{
+  "name": "PhishGuard",
+  "description": "Enterprise Browser Security Hub and Chrome Extension with real-time URL monitoring, deterministic rules engine, client fleet management, and automated threat interception.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
