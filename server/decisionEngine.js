@@ -15,12 +15,15 @@ function matchesPattern(pattern, target, isDomainOnly = false) {
   const p = pattern.trim().toLowerCase();
   const t = target.trim().toLowerCase();
 
-  // Exact match
-  if (p === t) return true;
+  const cleanP = p.replace(/^[a-z]+:\/\//i, '').replace(/\/+$/, '').split('/')[0].split(':')[0];
+  const cleanT = t.replace(/^[a-z]+:\/\//i, '').replace(/\/+$/, '').split('/')[0].split(':')[0];
+
+  // Exact match on raw or normalized domain
+  if (p === t || cleanP === cleanT || cleanP === t || p === cleanT) return true;
 
   // Domain specific sub-domain match (e.g. pattern = example.com matches sub.example.com)
   if (isDomainOnly) {
-    if (t.endsWith('.' + p)) return true;
+    if (cleanT.endsWith('.' + cleanP) || t.endsWith('.' + cleanP)) return true;
   }
 
   // Wildcard pattern (e.g. *.example.com or *badsite*)
@@ -30,10 +33,15 @@ function matchesPattern(pattern, target, isDomainOnly = false) {
       .replace(/\*/g, '.*');
     try {
       const regex = new RegExp(`^${escaped}$`, 'i');
-      if (regex.test(t)) return true;
+      if (regex.test(t) || regex.test(cleanT)) return true;
     } catch {
       // invalid regex fallback
     }
+  }
+
+  // Also check if raw URL target contains clean domain pattern
+  if (!isDomainOnly && t.includes(cleanP)) {
+    return true;
   }
 
   return false;
@@ -86,10 +94,12 @@ export function evaluateUrlDecision(rawUrl) {
     let matched = false;
 
     if (rule.target_type === 'domain') {
-      matched = matchesPattern(rule.pattern, domain, true);
+      matched = matchesPattern(rule.pattern, domain, true) || matchesPattern(rule.pattern, rawUrl, false);
     } else if (rule.target_type === 'url') {
-      matched = matchesPattern(rule.pattern, rawUrl, false);
+      matched = matchesPattern(rule.pattern, rawUrl, false) || matchesPattern(rule.pattern, domain, true);
     } else if (rule.target_type === 'wildcard') {
+      matched = matchesPattern(rule.pattern, domain, true) || matchesPattern(rule.pattern, rawUrl, false);
+    } else {
       matched = matchesPattern(rule.pattern, domain, true) || matchesPattern(rule.pattern, rawUrl, false);
     }
 

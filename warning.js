@@ -123,4 +123,137 @@
       }
     });
   }
+
+  // --- Real Audible Alarm & Notification Bell Behavior ---
+  const alertBellBarEl = document.getElementById('alertBellBar');
+  const bellIconEl = document.getElementById('bellIcon');
+  const bellTextEl = document.getElementById('bellText');
+  const btnSoundControlEl = document.getElementById('btnSoundControl');
+
+  let audioCtx = null;
+  let isSoundMuted = false;
+  let hasUserInteracted = false;
+
+  function initAudioContext() {
+    if (!audioCtx) {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (AudioContextClass) {
+        audioCtx = new AudioContextClass();
+      }
+    }
+    if (audioCtx && audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+    return audioCtx;
+  }
+
+  function playSecurityAlarm() {
+    if (isSoundMuted) return;
+
+    try {
+      const ctx = initAudioContext();
+      if (!ctx) return;
+
+      if (ctx.state === 'suspended') {
+        // Autoplay policy prevented immediate playback until user interaction
+        if (btnSoundControlEl) {
+          btnSoundControlEl.textContent = '🔇 Click to Sound Alarm';
+          btnSoundControlEl.style.background = '#f59e0b';
+        }
+        if (bellTextEl) {
+          bellTextEl.textContent = 'SECURITY ALERT: Click anywhere to play audio alarm';
+        }
+        return;
+      }
+
+      // Autoplay succeeded or user interacted
+      if (btnSoundControlEl) {
+        btnSoundControlEl.textContent = '🔊 Alarm Active';
+        btnSoundControlEl.style.background = verdict === 'suspicious' ? '#d97706' : '#dc3545';
+      }
+      if (bellTextEl) {
+        bellTextEl.textContent = verdict === 'suspicious'
+          ? 'SUSPICIOUS THREAT ALARM TRIGGERED'
+          : 'AUDIBLE SECURITY THREAT ALARM TRIGGERED';
+      }
+      if (bellIconEl) {
+        bellIconEl.classList.add('bell-ringing');
+      }
+
+      // Play unmistakable multi-tone security siren
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      if (verdict === 'phishing') {
+        osc.type = 'sawtooth';
+        // Alternating European-style security emergency siren (880Hz -> 659Hz -> 880Hz -> 659Hz)
+        osc.frequency.setValueAtTime(880, now);
+        osc.frequency.setValueAtTime(659, now + 0.2);
+        osc.frequency.setValueAtTime(880, now + 0.4);
+        osc.frequency.setValueAtTime(659, now + 0.6);
+        osc.frequency.setValueAtTime(880, now + 0.8);
+
+        gain.gain.setValueAtTime(0.28, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 1.1);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 1.1);
+      } else {
+        // Suspicious warning chime
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(520, now);
+        osc.frequency.setValueAtTime(680, now + 0.2);
+        osc.frequency.setValueAtTime(520, now + 0.4);
+
+        gain.gain.setValueAtTime(0.25, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.8);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.8);
+      }
+    } catch (e) {
+      console.warn('[PhishGuard] Audio alert notice:', e);
+    }
+  }
+
+  // Sound control toggle button
+  if (btnSoundControlEl) {
+    btnSoundControlEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      initAudioContext();
+      isSoundMuted = !isSoundMuted;
+      if (isSoundMuted) {
+        btnSoundControlEl.textContent = '🔇 Sound Muted';
+        btnSoundControlEl.style.background = '#4b5563';
+        if (bellIconEl) bellIconEl.classList.remove('bell-ringing');
+      } else {
+        btnSoundControlEl.textContent = '🔊 Alarm Active';
+        btnSoundControlEl.style.background = verdict === 'suspicious' ? '#d97706' : '#dc3545';
+        if (bellIconEl) bellIconEl.classList.add('bell-ringing');
+        playSecurityAlarm();
+      }
+    });
+  }
+
+  // Attempt to play immediately
+  try {
+    playSecurityAlarm();
+  } catch {}
+
+  // Fallback to guarantee audio triggers on any first user gesture if restricted by browser autoplay policy
+  const onUserGesture = () => {
+    if (hasUserInteracted) return;
+    hasUserInteracted = true;
+    const ctx = initAudioContext();
+    if (ctx) {
+      playSecurityAlarm();
+    }
+  };
+
+  window.addEventListener('click', onUserGesture, { once: true });
+  window.addEventListener('keydown', onUserGesture, { once: true });
+  window.addEventListener('pointerdown', onUserGesture, { once: true });
 })();

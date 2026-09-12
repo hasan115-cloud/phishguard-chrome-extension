@@ -28,6 +28,14 @@
   const serverDotEl = document.getElementById('serverDot');
   const dashboardBtnEl = document.getElementById('dashboardBtn');
 
+  // Config drawer elements
+  const btnToggleConfigEl = document.getElementById('btnToggleConfig');
+  const configPanelEl = document.getElementById('configPanel');
+  const popupServerUrlEl = document.getElementById('popupServerUrl');
+  const btnSaveConfigEl = document.getElementById('btnSaveConfig');
+  const btnOpenOptionsEl = document.getElementById('btnOpenOptions');
+  const configStatusMsgEl = document.getElementById('configStatusMsg');
+
   // State
   let activeUrl = 'https://example.com';
   let activeDomain = 'example.com';
@@ -35,32 +43,50 @@
   let isRecentExpanded = false;
   let trustedDomains = new Set();
   let recentScans = [];
+  let currentServerUrl = 'http://localhost:3000';
 
   const isExtension = typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id && chrome.tabs;
 
-  // Sound generator
+  // Sound generator & visual bell animation
   function playAlertSound(type) {
+    // Visually ring the notification bell indicator
+    if (soundBtnEl) {
+      soundBtnEl.classList.remove('bell-ringing');
+      void soundBtnEl.offsetWidth; // trigger reflow
+      soundBtnEl.classList.add('bell-ringing');
+      setTimeout(() => {
+        if (soundBtnEl) soundBtnEl.classList.remove('bell-ringing');
+      }, 2500);
+    }
+
     if (!isSoundEnabled) return;
     try {
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const audioCtx = new AudioCtx();
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
       osc.connect(gain);
       gain.connect(audioCtx.destination);
 
       if (type === 'phishing') {
+        osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(880, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(440, audioCtx.currentTime + 0.3);
-        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+        osc.frequency.exponentialRampToValueAtTime(440, audioCtx.currentTime + 0.35);
+        gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.35);
         osc.start();
-        osc.stop(audioCtx.currentTime + 0.3);
+        osc.stop(audioCtx.currentTime + 0.35);
       } else if (type === 'suspicious') {
-        osc.frequency.setValueAtTime(587, audioCtx.currentTime);
-        gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(659, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.25);
         osc.start();
-        osc.stop(audioCtx.currentTime + 0.2);
+        osc.stop(audioCtx.currentTime + 0.25);
       }
     } catch (e) {
       console.debug('Sound playback unavailable', e);
@@ -141,24 +167,9 @@
 
     try {
       let result;
-      // First try local backend API /api/scan
-      try {
-        const res = await fetch('/api/scan', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            url,
-            trusted: Array.from(trustedDomains)
-          })
-        });
-        if (res.ok) {
-          result = await res.json();
-        }
-      } catch (err) {
-        console.debug('API scan unavailable, using extension messaging or heuristic', err);
-      }
 
-      if (!result && isExtension) {
+      // 1. If in Chrome Extension, prefer background worker which handles server config & auth
+      if (isExtension && chrome.runtime && chrome.runtime.sendMessage) {
         result = await new Promise((resolve) => {
           chrome.runtime.sendMessage({ action: 'CHECK_URL', url }, (res) => {
             resolve(res || null);
@@ -166,9 +177,45 @@
         });
       }
 
-      // Fallback client-side heuristic if offline
+      // 2. Direct API check if not in extension or background didn't return
+      if (!result) {
+        try {
+          const baseApi = (currentServerUrl || '').replace(/\/+$/, '');
+          const res = await fetch(`${baseApi}/api/security/check-url`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              url,
+              clientId: 'POPUP-INSPECTOR',
+              systemName: 'PhishGuard Extension Popup'
+            })
+          });
+          if (res.ok) {
+            result = await res.json();
+          }
+        } catch (err) {
+          console.debug('Direct API check unavailable, using fallback', err);
+        }
+      }
+
+      // 3. Fallback client-side heuristic if offline
       if (!result) {
         result = clientSideEvaluate(url, trustedDomains);
+      }
+
+      // Normalize fields
+      if (result) {
+        if (!result.verdict) {
+          if (result.decision === 'BLOCK') result.verdict = 'phishing';
+          else if (result.decision === 'WARNING') result.verdict = 'suspicious';
+          else result.verdict = 'safe';
+        }
+        if (result.score === undefined && result.heuristicScore !== undefined) {
+          result.score = result.heuristicScore;
+        }
+        if (!result.reasons && result.reason) {
+          result.reasons = [result.reason];
+        }
       }
 
       renderVerdict(result);
@@ -263,8 +310,9 @@
     currentUrlEl.title = data.url;
     activeDomain = data.domain || activeDomain;
 
-    const verdict = data.verdict;
-    const score = data.score !== undefined ? data.score : 0;
+    const rawVerdict = data.verdict || (data.decision === 'BLOCK' ? 'phishing' : (data.decision === 'WARNING' ? 'suspicious' : 'safe'));
+    const verdict = String(rawVerdict || 'safe').toLowerCase();
+    const score = data.score !== undefined ? data.score : (data.heuristicScore !== undefined ? data.heuristicScore : (verdict === 'phishing' ? 95 : (verdict === 'suspicious' ? 60 : 0)));
 
     let cardClass = 'vc-safe';
     let labelClass = 'verdict-safe';
@@ -435,11 +483,82 @@
 
   if (dashboardBtnEl) {
     dashboardBtnEl.addEventListener('click', () => {
-      const targetUrl = window.location.origin || 'http://localhost:3000';
+      const targetUrl = currentServerUrl || window.location.origin || 'http://localhost:3000';
       if (isExtension && chrome.tabs && chrome.tabs.create) {
         chrome.tabs.create({ url: targetUrl });
       } else {
         window.open(targetUrl, '_blank');
+      }
+    });
+  }
+
+  // Config Drawer Event Listeners
+  if (btnToggleConfigEl && configPanelEl) {
+    btnToggleConfigEl.addEventListener('click', () => {
+      const isHidden = configPanelEl.style.display === 'none';
+      configPanelEl.style.display = isHidden ? 'block' : 'none';
+      if (isHidden && popupServerUrlEl) {
+        popupServerUrlEl.value = currentServerUrl;
+        popupServerUrlEl.focus();
+      }
+    });
+  }
+
+  if (btnOpenOptionsEl) {
+    btnOpenOptionsEl.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (chrome.runtime && chrome.runtime.openOptionsPage) {
+        chrome.runtime.openOptionsPage();
+      } else {
+        window.open('options.html', '_blank');
+      }
+    });
+  }
+
+  if (btnSaveConfigEl && popupServerUrlEl) {
+    btnSaveConfigEl.addEventListener('click', async () => {
+      let url = popupServerUrlEl.value.trim().replace(/\/+$/, '');
+      if (!url) return;
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        url = 'http://' + url;
+      }
+      popupServerUrlEl.value = url;
+      if (configStatusMsgEl) configStatusMsgEl.textContent = 'Testing connection...';
+
+      try {
+        const res = await fetch(`${url}/api/security/ping`, { signal: AbortSignal.timeout(3000) });
+        if (res.ok) {
+          currentServerUrl = url;
+          if (isExtension) {
+            chrome.storage.local.set({ serverUrl: url, serverConnected: true });
+            chrome.runtime.sendMessage({ action: 'UPDATE_CONFIG', serverUrl: url });
+          } else {
+            localStorage.setItem('phishguard_server_url', url);
+          }
+          if (configStatusMsgEl) {
+            configStatusMsgEl.style.color = '#4ade80';
+            configStatusMsgEl.textContent = 'Connected successfully!';
+          }
+          if (serverDotEl) {
+            serverDotEl.classList.remove('offline');
+            serverDotEl.title = 'Connected';
+          }
+          setTimeout(() => {
+            if (configPanelEl) configPanelEl.style.display = 'none';
+            scanUrl(activeUrl);
+          }, 800);
+        } else {
+          throw new Error('Server returned HTTP ' + res.status);
+        }
+      } catch (err) {
+        if (configStatusMsgEl) {
+          configStatusMsgEl.style.color = '#ff6b7a';
+          configStatusMsgEl.textContent = 'Connection failed: ' + err.message;
+        }
+        if (serverDotEl) {
+          serverDotEl.classList.add('offline');
+          serverDotEl.title = 'Offline';
+        }
       }
     });
   }
@@ -453,12 +572,20 @@
     // Check enterprise client info
     if (isExtension) {
       chrome.runtime.sendMessage({ action: 'GET_CLIENT_INFO' }, (info) => {
-        if (info && info.clientId && clientIdLabelEl) {
-          clientIdLabelEl.textContent = info.clientId;
+        if (info) {
+          if (info.clientId && clientIdLabelEl) clientIdLabelEl.textContent = info.clientId;
+          if (info.serverUrl) {
+            currentServerUrl = info.serverUrl;
+            if (popupServerUrlEl) popupServerUrlEl.value = info.serverUrl;
+          }
         }
       });
-      chrome.storage.local.get(['serverConnected', 'clientId'], (data) => {
+      chrome.storage.local.get(['serverConnected', 'clientId', 'serverUrl'], (data) => {
         if (data.clientId && clientIdLabelEl) clientIdLabelEl.textContent = data.clientId;
+        if (data.serverUrl) {
+          currentServerUrl = data.serverUrl;
+          if (popupServerUrlEl) popupServerUrlEl.value = data.serverUrl;
+        }
         if (serverDotEl) {
           if (data.serverConnected === false) {
             serverDotEl.classList.add('offline');
@@ -471,6 +598,9 @@
       });
     } else {
       if (clientIdLabelEl) clientIdLabelEl.textContent = 'WEB-CONSOLE';
+      const stored = localStorage.getItem('phishguard_server_url');
+      if (stored) currentServerUrl = stored;
+      if (popupServerUrlEl) popupServerUrlEl.value = currentServerUrl;
     }
 
     activeUrl = await determineActiveUrl();

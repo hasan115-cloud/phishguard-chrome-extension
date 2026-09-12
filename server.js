@@ -5,21 +5,21 @@ import { fileURLToPath } from 'url';
 import { initDatabase, db } from './server/db.js';
 import { broadcast } from './server/sse.js';
 import { evaluatePhishing, extractUrlFeatures, TRUSTED_DEFAULT_DOMAINS } from './engine.js';
+import { evaluateUrlDecision } from './server/decisionEngine.js';
 
 import authRoutes from './server/routes/auth.js';
 import clientsRoutes from './server/routes/clients.js';
 import securityRoutes from './server/routes/security.js';
 import rulesRoutes from './server/routes/rules.js';
 import alertsRoutes from './server/routes/alerts.js';
-import incidentsRoutes from './server/routes/incidents.js';
 import dashboardRoutes from './server/routes/dashboard.js';
 import reportsRoutes from './server/routes/reports.js';
-import auditLogsRoutes from './server/routes/auditLogs.js';
-import settingsRoutes from './server/routes/settings.js';
 import extensionRoutes from './server/routes/extension.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+import os from 'os';
 
 // Initialize persistent SQLite database
 initDatabase();
@@ -27,8 +27,24 @@ initDatabase();
 const app = express();
 const PORT = process.env.SERVER_PORT || 3000;
 
-// Security & Middleware
-app.use(cors({ origin: '*', credentials: true }));
+// Security & Robust CORS Middleware supporting chrome-extension://, LAN, and Remote HTTPS
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Client-ID, X-System-Name, X-Enrollment-Token, X-Extension-Version, X-Requested-With, Accept, Origin');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  next();
+});
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -40,13 +56,58 @@ app.use((req, res, next) => {
   next();
 });
 
-// Health endpoint
-app.get('/api/health', (req, res) => {
+// Helper: detect local LAN IP
+function getDetectedLanIp() {
+  try {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+      for (const iface of interfaces[name]) {
+        if (iface.family === 'IPv4' && !iface.internal && !iface.address.startsWith('169.254')) {
+          return iface.address;
+        }
+      }
+    }
+  } catch {}
+  return '127.0.0.1';
+}
+
+// Health & Ping endpoints
+app.get(['/api/health', '/api/ping', '/api/security/ping'], (req, res) => {
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
     uptimeSeconds: Math.floor(process.uptime()),
-    service: 'FortiNex Central Enterprise Platform'
+    service: 'PhishGuard Central Enterprise Platform'
+  });
+});
+
+// Dynamic Multi-Mode Connectivity Config endpoint for Chrome Extension
+app.get(['/api/config', '/api/extension/config'], (req, res) => {
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+  const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000';
+  const isRemote = host && !host.includes('localhost') && !host.includes('127.0.0.1');
+  const detectedRemoteUrl = isRemote
+    ? `${protocol}://${host}`
+    : 'https://ais-dev-edwrwsrecrzqlafgs46yj5-361661540763.asia-southeast1.run.app';
+  
+  const lanIp = getDetectedLanIp();
+  const lanUrl = lanIp !== '127.0.0.1' ? `http://${lanIp}:${PORT}` : `http://localhost:${PORT}`;
+  const localhostUrl = `http://localhost:${PORT}`;
+
+  const activeTokenRow = db.prepare("SELECT token FROM enrollment_tokens WHERE status = 'ACTIVE' ORDER BY created_at DESC LIMIT 1").get();
+  const activeToken = activeTokenRow ? activeTokenRow.token : 'ENROLL-PHISHGUARD-2026';
+
+  res.json({
+    modes: {
+      localhost: localhostUrl,
+      lan: lanUrl,
+      remote: detectedRemoteUrl
+    },
+    currentDetectedMode: isRemote ? 'remote' : 'localhost',
+    recommendedServerUrl: isRemote ? detectedRemoteUrl : localhostUrl,
+    activeEnrollmentToken: activeToken,
+    version: '1.4',
+    service: 'PhishGuard Central Enterprise Platform'
   });
 });
 
@@ -59,11 +120,11 @@ app.use('/api/events', securityRoutes);
 app.use('/api/extension', extensionRoutes);
 app.use('/api/rules', rulesRoutes);
 app.use('/api/alerts', alertsRoutes);
-app.use('/api/incidents', incidentsRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/reports', reportsRoutes);
-app.use('/api/audit-logs', auditLogsRoutes);
-app.use('/api/settings', settingsRoutes);
+
+// Vendor assets (jsPDF & jsPDF-autotable)
+app.use('/vendor', express.static(path.join(__dirname, 'node_modules')));
 
 // Backwards-compatible endpoints for extension popup / existing client calls
 const trustedDomains = new Set([...TRUSTED_DEFAULT_DOMAINS]);
@@ -94,45 +155,10 @@ app.post('/api/scan', (req, res) => {
     trusted.forEach(d => combinedTrusted.push(d));
   }
 
-  const result = evaluatePhishing(url, combinedTrusted);
-
-  // Check if administrative rules override
-  const rules = db.prepare('SELECT * FROM rules WHERE enabled = 1 ORDER BY priority DESC').all();
-  let finalVerdict = result.verdict;
-  let finalReasons = [...(result.reasons || [])];
-  let matchedRuleName = null;
-
-  try {
-    const u = new URL(url.startsWith('http') ? url : 'https://' + url);
-    const domain = u.hostname.toLowerCase();
-
-    for (const r of rules) {
-      const p = r.pattern.toLowerCase();
-      let matches = false;
-      if (r.target_type === 'domain') {
-        matches = domain === p || domain.endsWith('.' + p);
-      } else if (p.includes('*')) {
-        const regex = new RegExp('^' + p.replace(/\./g, '\\.').replace(/\*/g, '.*') + '$', 'i');
-        matches = regex.test(domain) || regex.test(url);
-      } else {
-        matches = url.toLowerCase().includes(p);
-      }
-
-      if (matches) {
-        if (r.type === 'BLOCK') finalVerdict = 'phishing';
-        else if (r.type === 'WARNING') finalVerdict = 'suspicious';
-        else if (r.type === 'ALLOW') finalVerdict = 'safe';
-        matchedRuleName = r.pattern;
-        finalReasons.unshift(`Matched policy rule: ${r.type} (${r.pattern})`);
-        break;
-      }
-    }
-  } catch {
-    // fallback to heuristic
-  }
-
-  const decision = finalVerdict === 'phishing' ? 'BLOCK' : (finalVerdict === 'suspicious' ? 'WARNING' : 'ALLOW');
-  const threatLevel = finalVerdict === 'phishing' ? 'HIGH' : (finalVerdict === 'suspicious' ? 'MEDIUM' : 'SAFE');
+  const evalResult = evaluateUrlDecision(url);
+  const finalVerdict = evalResult.decision === 'BLOCK' ? 'phishing' : (evalResult.decision === 'WARNING' ? 'suspicious' : 'safe');
+  const decision = evalResult.decision;
+  const threatLevel = evalResult.threatLevel;
 
   // Insert URL event
   const eventId = 'ev-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
@@ -147,7 +173,7 @@ app.post('/api/scan', (req, res) => {
     INSERT INTO url_events (
       id, client_id, system_name, url, domain, timestamp,
       decision, threat_level, rule_id, rule_name, reason, browser_info
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, '{}')
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}')
   `).run(
     eventId,
     activeClientId,
@@ -157,8 +183,9 @@ app.post('/api/scan', (req, res) => {
     now,
     decision,
     threatLevel,
-    matchedRuleName,
-    finalReasons.join('; ')
+    evalResult.ruleId,
+    evalResult.ruleName,
+    evalResult.reason
   );
 
   broadcast('URL_EVENT', {
@@ -170,16 +197,18 @@ app.post('/api/scan', (req, res) => {
     timestamp: now,
     decision,
     threatLevel,
-    reason: finalReasons.join('; ')
+    reason: evalResult.reason
   });
 
   res.json({
-    url: result.url,
-    domain: result.domain,
+    url,
+    domain,
     verdict: finalVerdict,
-    score: result.score,
-    reasons: finalReasons,
-    features: result.features
+    score: evalResult.features?.heuristicScore || (finalVerdict === 'phishing' ? 95 : 5),
+    reasons: [evalResult.reason],
+    features: evalResult.features || {},
+    decision,
+    threatLevel
   });
 });
 

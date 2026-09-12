@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "PhishGuard",
+  "name": "PhishGuard Extension",
   "version": "1.4",
-  "description": "AI-Powered Phishing Detection — XGBoost + Random Forest ML with real-time URL scanning and explainable results.",
+  "description": "PhishGuard Extension — Real-time browser endpoint phishing defense, URL interception, and security rules enforcement.",
 
   "permissions": [
     "activeTab",
@@ -11,11 +11,13 @@
     "scripting",
     "webNavigation",
     "contextMenus",
-    "alarms"
+    "alarms",
+    "notifications",
+    "offscreen"
   ],
 
   "host_permissions": [
-    "http://127.0.0.1:8000/*",
+    "*://*/*",
     "<all_urls>"
   ],
 
@@ -53,8 +55,13 @@
 
   "action": {
     "default_popup": "popup.html",
-    "default_title": "PhishGuard",
+    "default_title": "PhishGuard Extension",
     "default_icon": "icon.png"
+  },
+
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": false
   },
 
   "icons": {

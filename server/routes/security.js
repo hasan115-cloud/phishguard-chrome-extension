@@ -7,7 +7,9 @@ const router = express.Router();
 
 // 1. Check URL & Make Decision (Core Security Engine endpoint)
 const handleCheckUrl = (req, res) => {
-  const { url, clientId, systemName, tabId, browserInfo, detectionSource } = req.body;
+  const { url, tabId, browserInfo, detectionSource } = req.body;
+  const clientId = req.body.clientId || req.headers['x-client-id'];
+  const systemName = req.body.systemName || req.headers['x-system-name'];
   const ipAddress = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip || req.connection?.remoteAddress || '127.0.0.1';
   const now = new Date().toISOString();
 
@@ -24,9 +26,17 @@ const handleCheckUrl = (req, res) => {
       INSERT INTO clients (
         client_id, system_name, hostname, os, browser,
         extension_version, first_seen, last_seen, status, ip_address, client_metadata
-      ) VALUES (?, ?, 'auto-enrolled', 'Chrome OS/Linux/Windows', 'Google Chrome', '1.4', ?, ?, 'ONLINE', ?, '{}')
+      ) VALUES (?, ?, 'enrolled-workstation', 'Workstation OS', 'Google Chrome', '1.4', ?, ?, 'ONLINE', ?, '{}')
     `).run(activeClientId, assignedName, now, now, ipAddress);
     clientRecord = { client_id: activeClientId, system_name: assignedName };
+    broadcast('CLIENT_REGISTERED', {
+      clientId: activeClientId,
+      systemName: assignedName,
+      status: 'ONLINE',
+      ipAddress,
+      firstSeen: now,
+      lastSeen: now
+    });
   } else {
     // Update client last_seen
     db.prepare("UPDATE clients SET last_seen = ?, status = 'ONLINE', ip_address = ? WHERE client_id = ?")
@@ -117,63 +127,28 @@ const handleCheckUrl = (req, res) => {
       status: 'NEW'
     };
 
-    // Incident management: Check if an open incident exists for this client or create a new one
-    try {
-      const openIncident = db.prepare(`
-        SELECT * FROM incidents
-        WHERE client_id = ? AND status IN ('OPEN', 'INVESTIGATING')
-        ORDER BY last_activity DESC
-        LIMIT 1
-      `).get(activeClientId);
-
-      if (openIncident) {
-        db.prepare(`
-          UPDATE incidents
-          SET last_activity = ?,
-              related_alert_count = related_alert_count + 1
-          WHERE id = ?
-        `).run(now, openIncident.id);
-      } else {
-        const incidentId = 'inc-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
-        const title = `Security threat flagged on ${clientRecord.system_name} (${parsedDomain})`;
-        db.prepare(`
-          INSERT INTO incidents (
-            id, title, severity, client_id, system_name,
-            start_time, last_activity, related_alert_count, status, notes
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'OPEN', ?)
-        `).run(
-          incidentId,
-          title,
-          evalResult.threatLevel,
-          activeClientId,
-          clientRecord.system_name,
-          now,
-          now,
-          `Triggered by ${evalResult.decision} on ${url}. Reason: ${evalResult.reason}`
-        );
-      }
-    } catch (e) {
-      console.debug('Incident creation note:', e.message);
-    }
-
     // Broadcast alert via SSE
     broadcast('SECURITY_ALERT', alertCreated);
   }
 
-  // Broadcast URL event via SSE for Live Activity Feed & Overview charts
+  // Broadcast URL event via SSE for Overview stats
   broadcast('URL_EVENT', eventRecord);
 
   // Return decision to extension
   res.json({
+    verdict: evalResult.decision === 'BLOCK' ? 'phishing' : (evalResult.decision === 'WARNING' ? 'suspicious' : 'safe'),
     decision: evalResult.decision, // 'ALLOW', 'WARNING', 'BLOCK'
     threatLevel: evalResult.threatLevel,
+    threat_level: evalResult.threatLevel,
     reason: evalResult.reason,
+    reasons: evalResult.reason ? [evalResult.reason] : [],
     ruleId: evalResult.ruleId,
     ruleName: evalResult.ruleName,
     url,
     domain: parsedDomain,
     timestamp: now,
-    heuristicScore: evalResult.heuristicScore
+    heuristicScore: evalResult.heuristicScore,
+    score: evalResult.heuristicScore
   });
 };
 

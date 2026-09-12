@@ -647,6 +647,70 @@
       align-items: center;
       gap: 8px;
     }
+
+    /* Print and Report Styles */
+    .report-paper {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 24px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+    }
+
+    @media print {
+      body {
+        background: #ffffff !important;
+        color: #0f172a !important;
+      }
+      aside.sidebar, header.topbar, .panel-actions, .filter-bar, .modal-backdrop, #toastMessage, .btn-header, .no-print {
+        display: none !important;
+      }
+      .app-main {
+        margin-left: 0 !important;
+        width: 100% !important;
+        padding: 0 !important;
+      }
+      .content-container {
+        padding: 0 !important;
+        max-width: 100% !important;
+      }
+      .tab-view {
+        display: none !important;
+      }
+      #tab-reports {
+        display: block !important;
+      }
+      .report-paper {
+        background: #ffffff !important;
+        color: #0f172a !important;
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+      }
+      .report-paper table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+        color: #0f172a !important;
+      }
+      .report-paper th {
+        background: #f1f5f9 !important;
+        color: #0f172a !important;
+        border: 1px solid #cbd5e1 !important;
+        padding: 8px !important;
+      }
+      .report-paper td {
+        border: 1px solid #e2e8f0 !important;
+        color: #334155 !important;
+        padding: 8px !important;
+      }
+      .stat-card {
+        border: 1px solid #cbd5e1 !important;
+        background: #f8fafc !important;
+        box-shadow: none !important;
+      }
+      .stat-title { color: #64748b !important; }
+      .stat-number { color: #0f172a !important; }
+    }
   </style>
 </head>
 <body>
@@ -673,9 +737,6 @@
       <a class="nav-item" data-tab="url-history">
         <span>🔗</span> URL History
       </a>
-      <a class="nav-item" data-tab="live-feed">
-        <span>⚡</span> Live Activity Feed
-      </a>
 
       <div class="nav-label">Threat Governance</div>
       <a class="nav-item" data-tab="rules">
@@ -685,22 +746,13 @@
         <span>🚨</span> Threat Alerts
         <span class="nav-badge" id="alertBadgeCount">0</span>
       </a>
-      <a class="nav-item" data-tab="incidents">
-        <span>⚠️</span> Incidents
-      </a>
 
-      <div class="nav-label">Operations & Fleet Onboarding</div>
+      <div class="nav-label">Operations & Reporting</div>
       <a class="nav-item" data-tab="install">
         <span>📥</span> Install Extension
       </a>
       <a class="nav-item" data-tab="reports">
-        <span>📈</span> Reports & Export
-      </a>
-      <a class="nav-item" data-tab="audit">
-        <span>📜</span> Audit Logs
-      </a>
-      <a class="nav-item" data-tab="settings">
-        <span>⚙️</span> Fleet Settings & Policies
+        <span>📈</span> Reports & Analytics
       </a>
     </nav>
 
@@ -787,6 +839,41 @@
           </div>
         </div>
 
+        <!-- Telemetry Classification Breakdown (Real Database Counts) -->
+        <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-md); padding:16px 20px; margin-bottom:24px; display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:16px;">
+          <div>
+            <div style="font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:0.8px; color:var(--text-muted);">
+              URL Classification Breakdown (Live Extension Telemetry)
+            </div>
+            <div style="font-size:1.05rem; font-weight:700; color:var(--text-main); margin-top:3px;">
+              <span id="overviewClassTotal">0</span> URLs Evaluated by Extension
+            </div>
+          </div>
+          <div style="display:flex; flex-wrap:wrap; gap:12px;">
+            <div style="display:flex; align-items:center; gap:8px; background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.3); padding:8px 16px; border-radius:var(--radius-sm);">
+              <span style="font-size:1.2rem;">🛡️</span>
+              <div>
+                <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Safe URLs</div>
+                <div style="font-size:1.15rem; font-weight:800; color:#10b981;" id="overviewClassSafe">0</div>
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px; background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.3); padding:8px 16px; border-radius:var(--radius-sm);">
+              <span style="font-size:1.2rem;">⚠️</span>
+              <div>
+                <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Suspicious URLs</div>
+                <div style="font-size:1.15rem; font-weight:800; color:#f59e0b;" id="overviewClassSuspicious">0</div>
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); padding:8px 16px; border-radius:var(--radius-sm);">
+              <span style="font-size:1.2rem;">⛔</span>
+              <div>
+                <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Phishing URLs</div>
+                <div style="font-size:1.15rem; font-weight:800; color:#ef4444;" id="overviewClassPhishing">0</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div style="display: grid; grid-template-columns: 1.5fr 1fr; gap: 20px;">
           <!-- Recent URL Events -->
           <div class="panel">
@@ -800,9 +887,9 @@
                   <tr>
                     <th>Timestamp</th>
                     <th>System / Client</th>
+                    <th>Classification</th>
                     <th>Destination Domain</th>
-                    <th>Decision</th>
-                    <th>Threat Level</th>
+                    <th>Verdict</th>
                   </tr>
                 </thead>
                 <tbody id="overviewRecentEventsTbody">
@@ -913,10 +1000,10 @@
                 <tr>
                   <th>Timestamp</th>
                   <th>Client / System</th>
+                  <th>Classification</th>
                   <th>Destination Domain</th>
                   <th>Full URL</th>
-                  <th>Decision</th>
-                  <th>Threat Level</th>
+                  <th>Verdict / Decision</th>
                   <th>Matched Policy / Reason</th>
                 </tr>
               </thead>
@@ -937,43 +1024,98 @@
       </section>
 
       <!-- ======================================================== -->
-      <!-- TAB 4: LIVE ACTIVITY FEED (SSE) -->
-      <!-- ======================================================== -->
-      <section class="tab-view" id="tab-live-feed">
-        <div class="panel">
-          <div class="panel-header">
-            <div class="panel-title">
-              <span>⚡</span> Real-Time Endpoint Event Streaming Ticker (SSE)
-            </div>
-            <div class="panel-actions">
-              <button class="btn-header" id="btnClearLiveFeed">Clear Log</button>
-            </div>
-          </div>
-          <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:14px;">
-            Incoming navigations, heartbeat signals, policy blocks, and new device enrollments stream directly from connected Chrome Extension clients.
-          </p>
-
-          <div class="feed-container" id="liveFeedList">
-            <div style="text-align:center; padding:30px; color:var(--text-muted); font-size:0.85rem;">
-              Listening for live endpoint events...
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- ======================================================== -->
-      <!-- TAB 5: SECURITY RULES POLICY -->
+      <!-- TAB 4: SECURITY RULES POLICY -->
       <!-- ======================================================== -->
       <section class="tab-view" id="tab-rules">
+        <!-- SECTION A: WHITELIST URLS -->
+        <div class="panel" style="border-top: 3px solid #10b981; margin-bottom: 20px;">
+          <div class="panel-header">
+            <div>
+              <div class="panel-title" style="color: #10b981;"><span>🛡️</span> SECTION A — WHITELIST URLS</div>
+              <div style="font-size:0.8rem; color:var(--text-muted); margin-top:4px;">
+                URLs and domains added here are permanently treated as <strong>SAFE / ALLOWED</strong>. The Chrome extension bypasses phishing warnings, immediately permits navigation, and logs safe telemetry.
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick-Add Whitelist Rule Form -->
+          <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px; background:var(--bg-input); padding:12px; border-radius:var(--radius-sm); border:1px solid var(--border);">
+            <input type="text" id="whitelistUrlInput" class="filter-input" style="flex:1; min-width:240px;" placeholder="Enter URL or domain to Whitelist (e.g. https://example.com or example.com)">
+            <input type="text" id="whitelistDescInput" class="filter-input" style="flex:1; min-width:200px;" placeholder="Reason / Description (e.g. Official Corporate Partner)">
+            <button class="btn-header btn-primary" id="btnAddWhitelistBtn" style="background:#10b981; border-color:#059669; padding:8px 16px;">
+              <span>💾</span> Save / Add Whitelist Rule
+            </button>
+          </div>
+
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Decision</th>
+                  <th>Whitelist Pattern / Domain</th>
+                  <th>Description</th>
+                  <th>Priority</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="whitelistTableBody">
+                <tr><td colspan="6" style="text-align:center; padding:16px; color:var(--text-muted);">Loading whitelist rules...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- SECTION B: PHISHING URLS -->
+        <div class="panel" style="border-top: 3px solid #ef4444; margin-bottom: 20px;">
+          <div class="panel-header">
+            <div>
+              <div class="panel-title" style="color: #ef4444;"><span>🛑</span> SECTION B — PHISHING URLS</div>
+              <div style="font-size:0.8rem; color:var(--text-muted); margin-top:4px;">
+                URLs and domains manually added here are treated as <strong>PHISHING</strong>. The Chrome extension intercepts the navigation, sounds the alarm, displays the warning screen, and logs 1 phishing detection + 1 alert to the server.
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick-Add Phishing Rule Form -->
+          <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px; background:var(--bg-input); padding:12px; border-radius:var(--radius-sm); border:1px solid var(--border);">
+            <input type="text" id="phishingUrlInput" class="filter-input" style="flex:1; min-width:240px;" placeholder="Enter URL or domain to Block as Phishing (e.g. http://example-phishing-test.com)">
+            <input type="text" id="phishingDescInput" class="filter-input" style="flex:1; min-width:200px;" placeholder="Threat campaign notes (e.g. Credential Harvester Campaign)">
+            <button class="btn-header btn-primary" id="btnAddPhishingBtn" style="background:#ef4444; border-color:#dc2626; padding:8px 16px;">
+              <span>💾</span> Save / Add Phishing Rule
+            </button>
+          </div>
+
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Decision</th>
+                  <th>Phishing Pattern / Domain</th>
+                  <th>Description</th>
+                  <th>Severity</th>
+                  <th>Priority</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="phishingTableBody">
+                <tr><td colspan="7" style="text-align:center; padding:16px; color:var(--text-muted);">Loading phishing rules...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- MASTER RULES POLICY OVERVIEW -->
         <div class="panel">
           <div class="panel-header">
-            <div class="panel-title"><span>🛡️</span> Security Policy Rules (ALLOW / WARNING / BLOCK)</div>
+            <div class="panel-title"><span>⚙️</span> Master Security Policy Rules</div>
             <div class="panel-actions">
-              <button class="btn-header btn-primary" id="btnOpenNewRuleModal">+ Create Policy Rule</button>
+              <button class="btn-header btn-primary" id="btnOpenNewRuleModal">+ Advanced Policy Rule</button>
             </div>
           </div>
           <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:14px;">
-            Rules are evaluated in order of priority (higher number wins). Exact and wildcard patterns (*.example.com) are supported.
+            Rules are evaluated in order of priority (higher number wins). Exact, wildcard, and path patterns are enforced across all enrolled Chrome extensions.
           </p>
 
           <div class="table-responsive">
@@ -1049,56 +1191,105 @@
       </section>
 
       <!-- ======================================================== -->
-      <!-- TAB 7: INCIDENTS -->
-      <!-- ======================================================== -->
-      <section class="tab-view" id="tab-incidents">
-        <div class="panel">
-          <div class="panel-header">
-            <div class="panel-title"><span>⚠️</span> Threat Investigation Incidents</div>
-            <div class="panel-actions">
-              <button class="btn-header" id="btnRefreshIncidents">🔄 Refresh</button>
-            </div>
-          </div>
-          <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:14px;">
-            Repeated or high-severity threat alerts automatically group into investigative incidents per client workstation.
-          </p>
-
-          <div class="table-responsive">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Status</th>
-                  <th>Incident Title</th>
-                  <th>Severity</th>
-                  <th>Impacted System</th>
-                  <th>Alerts Flagged</th>
-                  <th>Last Activity</th>
-                  <th>Investigator Notes</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody id="incidentsTableBody">
-                <tr><td colspan="8" style="text-align:center; padding:20px;">Loading incidents...</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <!-- ======================================================== -->
-      <!-- TAB 8: REPORTS & EXPORT -->
+      <!-- TAB 6: REPORTS & EXPORT -->
       <!-- ======================================================== -->
       <section class="tab-view" id="tab-reports">
-        <div class="panel">
+        <div class="panel no-print" style="margin-bottom: 20px;">
           <div class="panel-header">
             <div class="panel-title"><span>📈</span> Threat Intelligence Reports & Analytics</div>
             <div class="panel-actions">
-              <button class="btn-header btn-primary" id="btnDownloadReportCsv">📥 Download Events CSV</button>
-              <button class="btn-header" id="btnDownloadAlertsReportCsv">📥 Download Alerts CSV</button>
+              <button class="btn-header" id="btnRefreshReport">🔄 Refresh</button>
             </div>
           </div>
 
-          <div class="stats-row" style="margin-bottom:20px;">
+          <!-- Report Scope Selection Workflow -->
+          <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-md); padding:18px;">
+            <div style="font-size:0.88rem; font-weight:700; color:var(--text-main); margin-bottom:12px;">
+              Report Scope:
+            </div>
+            <div style="display:flex; align-items:center; gap:24px; margin-bottom:14px;">
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.88rem; color:var(--text-main); font-weight:500;">
+                <input type="radio" name="reportScopeRadio" id="scopeAllRadio" value="ALL" checked style="accent-color:#38bdf8; width:17px; height:17px;">
+                <span>All Systems (Aggregated Fleet)</span>
+              </label>
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.88rem; color:var(--text-main); font-weight:500;">
+                <input type="radio" name="reportScopeRadio" id="scopeSingleRadio" value="SINGLE" style="accent-color:#38bdf8; width:17px; height:17px;">
+                <span>Single System</span>
+              </label>
+            </div>
+
+            <!-- Single System Selector (shown when Single System is selected) -->
+            <div id="singleSystemPickerContainer" style="display:none; margin-bottom:16px; padding:12px; background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius-sm);">
+              <label style="font-size:0.82rem; font-weight:600; color:var(--text-muted); display:block; margin-bottom:6px;">
+                System:
+              </label>
+              <select id="reportSingleSystemSelect" class="filter-select" style="min-width:320px; max-width:100%; font-size:0.88rem;">
+                <option value="">Select System ▼</option>
+              </select>
+            </div>
+
+            <!-- Filter Controls and Separate PDF + Print Action Buttons -->
+            <div style="display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; padding-top:14px; border-top:1px solid var(--border);">
+              <div style="display:flex; align-items:center; gap:12px;">
+                <label style="font-size:0.82rem; color:var(--text-muted); display:flex; align-items:center; gap:6px;">
+                  Time Range:
+                  <select id="reportTimeRange" class="filter-select">
+                    <option value="ALL">All Time</option>
+                    <option value="24h">Last 24 Hours</option>
+                    <option value="7d">Last 7 Days</option>
+                    <option value="30d">Last 30 Days</option>
+                  </select>
+                </label>
+              </div>
+
+              <!-- Two SEPARATE buttons: Download PDF and Print -->
+              <div style="display:flex; align-items:center; gap:10px;">
+                <button class="btn-header btn-primary" id="btnDownloadReportPdf" style="padding:9px 18px; font-size:0.88rem; font-weight:700;">
+                  📥 Download PDF
+                </button>
+                <button class="btn-header" id="btnPrintReport" style="padding:9px 18px; font-size:0.88rem; font-weight:700; background:#1e293b; border-color:#475569; color:#f8fafc;">
+                  🖨️ Print
+                </button>
+                <button class="btn-header" id="btnDownloadReportCsv" style="padding:9px 14px; font-size:0.84rem;">
+                  📊 CSV
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Generated Professional Report Document -->
+        <div class="report-paper" id="reportContentArea">
+          <!-- Report Header -->
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid var(--border); padding-bottom:16px; margin-bottom:20px;">
+            <div style="display:flex; align-items:center; gap:12px;">
+              <img src="icon.png" alt="PhishGuard Shield" style="width:42px; height:42px;">
+              <div>
+                <h2 style="font-size:1.3rem; font-weight:800; color:var(--text-main); margin:0;" id="reportDocTitle">PhishGuard Enterprise Threat Assessment Report</h2>
+                <div style="font-size:0.82rem; color:var(--text-muted);" id="reportDocSubtitle">Endpoint Telemetry, Policy Enforcements & Threat Audit</div>
+              </div>
+            </div>
+            <div style="text-align:right; font-size:0.8rem; color:var(--text-muted);">
+              <div>Generated: <strong style="color:var(--text-main);" id="reportGeneratedTime">—</strong></div>
+              <div>Scope: <strong style="color:#38bdf8;" id="reportScopeLabel">All Systems</strong></div>
+            </div>
+          </div>
+
+          <!-- Single System Details Meta (shown when specific system selected) -->
+          <div id="reportSystemMetaCard" style="display:none; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; padding:12px 16px; margin-bottom:20px; font-size:0.82rem;">
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:10px;">
+              <div><span style="color:var(--text-muted);">System Name:</span> <strong id="repMetaSysName" style="color:var(--text-main);">—</strong></div>
+              <div><span style="color:var(--text-muted);">Client ID:</span> <code id="repMetaClientId" style="color:#38bdf8;">—</code></div>
+              <div><span style="color:var(--text-muted);">Hostname:</span> <strong id="repMetaHostname">—</strong></div>
+              <div><span style="color:var(--text-muted);">Platform / OS:</span> <span id="repMetaOS">—</span></div>
+              <div><span style="color:var(--text-muted);">IP Address:</span> <code id="repMetaIP">—</code></div>
+              <div><span style="color:var(--text-muted);">Status:</span> <span id="repMetaStatus" class="badge-pill badge-allow">ONLINE</span></div>
+            </div>
+          </div>
+
+          <!-- Executive Threat Scan Summary Cards -->
+          <h3 style="font-size:0.95rem; font-weight:700; color:var(--text-main); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:12px;">1. Executive Threat Scan Summary</h3>
+          <div class="stats-row" style="margin-bottom:24px;">
             <div class="stat-card">
               <div class="stat-meta">
                 <span class="stat-title">Total Monitored</span>
@@ -1107,7 +1298,13 @@
             </div>
             <div class="stat-card">
               <div class="stat-meta">
-                <span class="stat-title">Phishing Intercepted</span>
+                <span class="stat-title">Safe / Allowed</span>
+                <span class="stat-number" id="repAllowedEvents" style="color: #10b981;">0</span>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-meta">
+                <span class="stat-title">Phishing Interceptions</span>
                 <span class="stat-number" id="repBlockedEvents" style="color: #ef4444;">0</span>
               </div>
             </div>
@@ -1117,55 +1314,46 @@
                 <span class="stat-number" id="repWarningEvents" style="color: #f59e0b;">0</span>
               </div>
             </div>
-            <div class="stat-card">
-              <div class="stat-meta">
-                <span class="stat-title">Legitimate Verified</span>
-                <span class="stat-number" id="repAllowedEvents" style="color: #10b981;">0</span>
-              </div>
+          </div>
+
+          <!-- Per-System Summary Counts Section (for All Systems or multi-system fleet) -->
+          <div id="reportPerSystemSection" style="margin-bottom: 24px;">
+            <h3 style="font-size:0.95rem; font-weight:700; color:var(--text-main); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:12px;">2. Summary Counts Per System / Endpoint</h3>
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>System / Endpoint Name</th>
+                    <th>Safe Count</th>
+                    <th>Suspicious Count</th>
+                    <th>Phishing Count</th>
+                    <th>Total Analyzed</th>
+                  </tr>
+                </thead>
+                <tbody id="reportPerSystemTbody">
+                  <tr><td colspan="5" style="text-align:center; padding:12px; color:var(--text-muted);">No endpoint telemetry recorded yet.</td></tr>
+                </tbody>
+              </table>
             </div>
           </div>
 
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
-            <div class="panel" style="margin-bottom:0;">
-              <div class="panel-title" style="margin-bottom:12px;">📊 Threat Level Distribution</div>
-              <div id="reportThreatLevelsList" style="font-size:0.85rem; display:flex; flex-direction:column; gap:8px;"></div>
-            </div>
-            <div class="panel" style="margin-bottom:0;">
-              <div class="panel-title" style="margin-bottom:12px;">💻 Activity by Endpoint</div>
-              <div id="reportClientsList" style="font-size:0.85rem; display:flex; flex-direction:column; gap:8px;"></div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- ======================================================== -->
-      <!-- TAB 9: AUDIT LOGS -->
-      <!-- ======================================================== -->
-      <section class="tab-view" id="tab-audit">
-        <div class="panel">
-          <div class="panel-header">
-            <div class="panel-title"><span>📜</span> Administrative Audit Trail</div>
-            <button class="btn-header" id="btnRefreshAudit">🔄 Refresh</button>
-          </div>
-          <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:14px;">
-            All administrative logins, policy changes, rule modifications, alert status updates, and configuration adjustments are strictly logged.
-          </p>
-
+          <!-- Threat Details Table -->
+          <h3 style="font-size:0.95rem; font-weight:700; color:var(--text-main); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:12px;">3. Monitored URL History & Classification Audit Trail</h3>
           <div class="table-responsive">
-            <table class="data-table">
+            <table class="data-table" id="reportTable">
               <thead>
                 <tr>
                   <th>Timestamp</th>
-                  <th>Admin User</th>
-                  <th>Action</th>
-                  <th>Target</th>
-                  <th>Result</th>
-                  <th>IP Address</th>
-                  <th>Details</th>
+                  <th>System / Endpoint</th>
+                  <th>Destination Domain</th>
+                  <th>Destination URL</th>
+                  <th>Classification</th>
+                  <th>Threat Level</th>
+                  <th>Detection / Rule Information</th>
                 </tr>
               </thead>
-              <tbody id="auditLogsTableBody">
-                <tr><td colspan="7" style="text-align:center; padding:20px;">Loading audit records...</td></tr>
+              <tbody id="reportDetailedEventsTbody">
+                <tr><td colspan="7" style="text-align:center; padding:20px; color:var(--text-muted);">Loading real database report data...</td></tr>
               </tbody>
             </table>
           </div>
@@ -1173,7 +1361,7 @@
       </section>
 
       <!-- ======================================================== -->
-      <!-- TAB 10: INSTALL & ENROLL EXTENSION -->
+      <!-- TAB 7: INSTALL & ENROLL EXTENSION -->
       <!-- ======================================================== -->
       <section class="tab-view" id="tab-install">
         <!-- Prominent Download Banner Card -->
@@ -1186,7 +1374,7 @@
                 <span class="badge-pill" style="background:#1e293b; color:#38bdf8;" id="extVersionBadge">v1.4</span>
               </div>
               <h2 style="font-size:1.45rem; font-weight:700; color:var(--text-main); margin-bottom:8px;">
-                Install FortiNex Endpoint Security Extension
+                Install PhishGuard Extension
               </h2>
               <p style="font-size:0.88rem; color:var(--text-muted); line-height:1.6;">
                 Deploy the genuine Manifest V3 Chrome Extension onto client workstations. It intercepts top-level browser navigations, queries the central decision engine, presents warning/block interstitial pages for threats, and delivers telemetry directly to this dashboard.
@@ -1211,7 +1399,7 @@
             <div>
               <label style="font-size:0.75rem; text-transform:uppercase; color:var(--text-dim); font-weight:700; display:block; margin-bottom:4px;">Active Enrollment Token:</label>
               <div style="display:flex; gap:6px;">
-                <input type="text" id="activeTokenDisplay" class="form-control" style="font-family:monospace; font-size:0.85rem; font-weight:700; color:#38bdf8;" readonly value="ENROLL-FORTINEX-2026">
+                <input type="text" id="activeTokenDisplay" class="form-control" style="font-family:monospace; font-size:0.85rem; font-weight:700; color:#38bdf8;" readonly value="ENROLL-PHISHGUARD-2026">
                 <button class="btn-header" id="btnCopyActiveToken" title="Copy token">📋 Copy</button>
               </div>
               <small style="font-size:0.72rem; color:var(--text-muted); margin-top:3px; display:block;">Use this token to authorize remote workstation registration in the extension settings popup.</small>
@@ -1231,7 +1419,7 @@
                 <strong style="font-size:0.9rem; color:var(--text-main);">Download & Extract</strong>
               </div>
               <p style="font-size:0.82rem; color:var(--text-muted); line-height:1.5;">
-                Click <strong>DOWNLOAD EXTENSION</strong> above to download <code style="color:#38bdf8;">FortiNex-Extension.zip</code>. Extract the archive onto your computer. You will see a folder named <code style="color:#38bdf8;">FortiNex-Extension</code> containing <code style="color:#e2e8f0;">manifest.json</code>.
+                Click <strong>DOWNLOAD EXTENSION</strong> above to download <code style="color:#38bdf8;">PhishGuard-Extension.zip</code>. Extract the archive onto your computer. You will see a folder named <code style="color:#38bdf8;">PhishGuard-Extension</code> containing <code style="color:#e2e8f0;">manifest.json</code>.
               </p>
             </div>
 
@@ -1263,7 +1451,7 @@
                 <strong style="font-size:0.9rem; color:var(--text-main);">Load Unpacked</strong>
               </div>
               <p style="font-size:0.82rem; color:var(--text-muted); line-height:1.5;">
-                Click the <strong>Load unpacked</strong> button on the top-left toolbar. In the file picker dialog, select the extracted <code style="color:#38bdf8;">FortiNex-Extension</code> folder.
+                Click the <strong>Load unpacked</strong> button on the top-left toolbar. In the file picker dialog, select the extracted <code style="color:#38bdf8;">PhishGuard-Extension</code> folder.
               </p>
             </div>
 
@@ -1273,7 +1461,7 @@
                 <strong style="font-size:0.9rem; color:var(--text-main);">Enrolled & Protected!</strong>
               </div>
               <p style="font-size:0.82rem; color:var(--text-muted); line-height:1.5;">
-                FortiNex is now active! It automatically registers with this server, acquires a unique client ID, begins sending 30s heartbeats, and intercepts navigation. Verify it in the <strong>Enrolled Systems</strong> tab.
+                PhishGuard Extension is now active! It automatically registers with this server, acquires a unique client ID, begins sending 30s heartbeats, and intercepts navigation. Verify it in the <strong>Enrolled Systems</strong> tab.
               </p>
             </div>
           </div>
@@ -1315,7 +1503,7 @@
               <button class="btn-header" id="btnRefreshPkgInfo">🔄 Verify Source Files</button>
             </div>
             <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px;">
-              These verified source files are packaged inside <code style="color:#38bdf8;">FortiNex-Extension.zip</code>:
+              These verified source files are packaged inside <code style="color:#38bdf8;">PhishGuard-Extension.zip</code>:
             </p>
             <div id="packageFilesList" style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:0.8rem; font-family:monospace;">
               <div style="padding:6px 10px; background:var(--bg-input); border-radius:4px; border:1px solid var(--border);">manifest.json (v3)</div>
@@ -1329,73 +1517,6 @@
             </div>
             <div style="margin-top:16px; padding:12px; background:rgba(6,182,212,0.1); border:1px solid rgba(6,182,212,0.3); border-radius:var(--radius-sm); font-size:0.8rem; color:#67e8f9;">
               💡 <strong>Zero-Config Remote Setup:</strong> The ZIP download automatically pre-configures <code style="color:#fff;">DEFAULT_SERVER_URL</code> to match this active server address so the unpacked extension links without manual configuration.
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- ======================================================== -->
-      <!-- TAB 11: FLEET SETTINGS & EXTENSION SETUP GUIDE -->
-      <!-- ======================================================== -->
-      <section class="tab-view" id="tab-settings">
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
-          <!-- System Configuration -->
-          <div class="panel">
-            <div class="panel-header">
-              <div class="panel-title"><span>⚙️</span> Fleet Governance Configuration</div>
-              <button class="btn-header btn-primary" id="btnSaveFleetSettings">Save Settings</button>
-            </div>
-
-            <div class="form-group">
-              <label>Heartbeat Offline Timeout (Seconds)</label>
-              <input type="number" id="settingHeartbeatTimeout" class="form-control" value="90">
-              <small style="color:var(--text-muted); font-size:0.75rem;">If an extension client fails to heartbeat within this timeframe, it is marked OFFLINE.</small>
-            </div>
-
-            <div class="form-group">
-              <label>User Bypass Policy</label>
-              <select id="settingAllowBypass" class="form-control">
-                <option value="false">Strict: Users Cannot Bypass Blocked Sites (Recommended)</option>
-                <option value="true">Permissive: Allow Users to Click "Proceed Anyway"</option>
-              </select>
-            </div>
-
-            <div class="form-group">
-              <label>Fleet Enrollment Token</label>
-              <input type="text" id="settingEnrollmentToken" class="form-control" value="PHISHGUARD-ENTERPRISE-2026">
-            </div>
-
-            <div class="form-group">
-              <label>Auto-Group Incidents</label>
-              <select id="settingAutoIncidents" class="form-control">
-                <option value="true">Enabled (Group threats into investigative cases)</option>
-                <option value="false">Disabled</option>
-              </select>
-            </div>
-          </div>
-
-          <!-- How to Install & Connect Extension in Chrome -->
-          <div class="panel">
-            <div class="panel-header">
-              <div class="panel-title"><span>📦</span> Client Extension Deployment Guide</div>
-            </div>
-            <div style="font-size:0.85rem; color:#cbd5e1; display:flex; flex-direction:column; gap:12px; line-height:1.6;">
-              <div>
-                <strong>Step 1: Open Chrome Extensions</strong><br>
-                Open Google Chrome and navigate to <code style="background:#1e293b; padding:2px 6px; border-radius:4px; color:#38bdf8;">chrome://extensions</code> in the address bar.
-              </div>
-              <div>
-                <strong>Step 2: Enable Developer Mode</strong><br>
-                Toggle the <strong>Developer mode</strong> switch in the top right corner.
-              </div>
-              <div>
-                <strong>Step 3: Load Unpacked</strong><br>
-                Click <strong>"Load unpacked"</strong> and select the directory containing this project repository.
-              </div>
-              <div>
-                <strong>Step 4: Central Server Synchronization</strong><br>
-                The background service worker (<code style="background:#1e293b; padding:2px 6px; border-radius:4px; color:#38bdf8;">background.js</code>) automatically enrolls with this central server, sets up heartbeat polling, and begins monitoring tab navigation.
-              </div>
             </div>
           </div>
         </div>
@@ -1549,6 +1670,8 @@
   </div>
 
   <!-- Scripts -->
+  <script src="/vendor/jspdf/dist/jspdf.umd.min.js"></script>
+  <script src="/vendor/jspdf-autotable/dist/jspdf.plugin.autotable.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

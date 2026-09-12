@@ -9,6 +9,10 @@ const DB_PATH = process.env.DATABASE_URL || path.join(__dirname, '..', 'phishgua
 
 export const db = new DatabaseSync(DB_PATH);
 
+export function getDatabase() {
+  return db;
+}
+
 // Enable WAL mode and foreign keys for high performance and durability
 try {
   db.exec('PRAGMA journal_mode = WAL;');
@@ -154,20 +158,25 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp DESC);
   `);
 
-  // Create default admin user if not exists
-  const adminUsername = process.env.ADMIN_USERNAME || 'admin';
-  const adminPassword = process.env.ADMIN_PASSWORD || 'PhishGuardAdmin2026!';
+  // Create default admin user and env user
+  const usersToSeed = [
+    { username: 'admin', password: 'PhishGuardAdmin2026!' },
+    { username: process.env.ADMIN_USERNAME || 'hasan', password: process.env.ADMIN_PASSWORD || '@2026#Admin!92' }
+  ];
 
-  const existingUser = db.prepare('SELECT id FROM users WHERE username = ?').get(adminUsername);
-  if (!existingUser) {
-    const salt = bcrypt.genSaltSync(10);
-    const hash = bcrypt.hashSync(adminPassword, salt);
-    const now = new Date().toISOString();
-    db.prepare(`
-      INSERT INTO users (id, username, password_hash, role, created_at)
-      VALUES (?, ?, ?, 'admin', ?)
-    `).run('user-admin-root', adminUsername, hash, now);
-    console.log(`[DB] Default administrator user initialized: ${adminUsername}`);
+  for (const u of usersToSeed) {
+    if (!u.username) continue;
+    const existingUser = db.prepare('SELECT id FROM users WHERE username = ?').get(u.username);
+    if (!existingUser) {
+      const salt = bcrypt.genSaltSync(10);
+      const hash = bcrypt.hashSync(u.password, salt);
+      const now = new Date().toISOString();
+      db.prepare(`
+        INSERT OR REPLACE INTO users (id, username, password_hash, role, created_at)
+        VALUES (?, ?, ?, 'admin', ?)
+      `).run('user-' + u.username, u.username, hash, now);
+      console.log(`[DB] Administrator user initialized: ${u.username}`);
+    }
   }
 
   // Seed default baseline enterprise security rules if table is empty
@@ -290,7 +299,7 @@ export function initDatabase() {
     const expires = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000); // 90 days validity
     db.prepare(`
       INSERT INTO enrollment_tokens (token, created_by, created_at, expires_at, status, max_uses, uses_count, description)
-      VALUES (?, 'system-init', ?, ?, 'ACTIVE', 100, 0, 'Default FortiNex Enterprise fleet enrollment token')
+      VALUES (?, 'system-init', ?, ?, 'ACTIVE', 100, 0, 'Default PhishGuard Enterprise fleet enrollment token')
     `).run('ENROLL-FORTINEX-2026', now.toISOString(), expires.toISOString());
   }
 

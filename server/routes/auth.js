@@ -5,6 +5,23 @@ import { signToken, requireAuth, logAudit } from '../auth.js';
 
 const router = express.Router();
 
+// Active Administrator Session Bootstrap
+router.get('/session', (req, res) => {
+  const adminUser = db.prepare("SELECT id, username, role FROM users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1").get();
+  if (adminUser) {
+    const token = signToken(adminUser);
+    return res.json({
+      token,
+      user: {
+        id: adminUser.id,
+        username: adminUser.username,
+        role: adminUser.role
+      }
+    });
+  }
+  res.status(404).json({ error: 'No administrator configured' });
+});
+
 // Admin Login
 router.post('/login', (req, res) => {
   const { username, password } = req.body;

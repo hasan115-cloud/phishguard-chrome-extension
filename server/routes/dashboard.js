@@ -54,14 +54,6 @@ router.get('/stats', (req, res) => {
     FROM rules
   `).get() || { total_rules: 0, enabled_rules: 0 };
 
-  // Incident counts
-  const incidentStats = db.prepare(`
-    SELECT
-      COUNT(*) as total_incidents,
-      SUM(CASE WHEN status IN ('OPEN', 'INVESTIGATING') THEN 1 ELSE 0 END) as active_incidents
-    FROM incidents
-  `).get() || { total_incidents: 0, active_incidents: 0 };
-
   // Top blocked threat domains
   const topBlockedDomains = db.prepare(`
     SELECT domain, COUNT(*) as count
@@ -92,8 +84,6 @@ router.get('/stats', (req, res) => {
     newAlerts: alertStats.new_alerts || 0,
     totalRules: ruleStats.total_rules || 0,
     enabledRules: ruleStats.enabled_rules || 0,
-    totalIncidents: incidentStats.total_incidents || 0,
-    activeIncidents: incidentStats.active_incidents || 0,
     topBlockedDomains,
     recentEvents
   });

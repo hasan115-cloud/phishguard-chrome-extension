@@ -63,10 +63,174 @@ router.get('/summary', (req, res) => {
   `).all(...params);
 
   res.json({
-    totals,
+    totals: {
+      total_events: totals.total_events || 0,
+      allowed_events: totals.allowed_events || 0,
+      warning_events: totals.warning_events || 0,
+      blocked_events: totals.blocked_events || 0
+    },
     byThreatLevel,
     topBlocked,
     byClient
+  });
+});
+
+// Comprehensive real-data report endpoint for PDF generation and printable dashboard
+router.get('/detailed', (req, res) => {
+  const { scope = 'ALL', timeRange = 'ALL', startDate, endDate } = req.query;
+
+  const where = [];
+  const params = [];
+
+  // 1. Time range filter
+  const now = new Date();
+  let computedStartDate = null;
+  let computedEndDate = null;
+
+  if (timeRange === '24h') {
+    computedStartDate = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+  } else if (timeRange === '7d') {
+    computedStartDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  } else if (timeRange === '30d') {
+    computedStartDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  } else if (timeRange === 'custom') {
+    if (startDate) computedStartDate = new Date(startDate).toISOString();
+    if (endDate) {
+      const e = new Date(endDate);
+      e.setHours(23, 59, 59, 999);
+      computedEndDate = e.toISOString();
+    }
+  }
+
+  if (computedStartDate) {
+    where.push('timestamp >= ?');
+    params.push(computedStartDate);
+  }
+  if (computedEndDate) {
+    where.push('timestamp <= ?');
+    params.push(computedEndDate);
+  }
+
+  // 2. Client scope filter
+  let targetClient = null;
+  if (scope && scope !== 'ALL') {
+    where.push('client_id = ?');
+    params.push(scope);
+    targetClient = db.prepare('SELECT * FROM clients WHERE client_id = ?').get(scope);
+  }
+
+  const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+
+  // 3. Totals
+  const totals = db.prepare(`
+    SELECT
+      COUNT(*) as total_events,
+      SUM(CASE WHEN decision = 'ALLOW' THEN 1 ELSE 0 END) as allowed_events,
+      SUM(CASE WHEN decision = 'WARNING' THEN 1 ELSE 0 END) as warning_events,
+      SUM(CASE WHEN decision = 'BLOCK' THEN 1 ELSE 0 END) as blocked_events
+    FROM url_events
+    ${whereSql}
+  `).get(...params) || { total_events: 0, allowed_events: 0, warning_events: 0, blocked_events: 0 };
+
+  // 4. By Threat Level
+  const byThreatLevel = db.prepare(`
+    SELECT threat_level, COUNT(*) as count
+    FROM url_events
+    ${whereSql}
+    GROUP BY threat_level
+    ORDER BY count DESC
+  `).all(...params);
+
+  // 5. Top Blocked Domains
+  const topBlockedWhere = where.length > 0 ? `${whereSql} AND decision = 'BLOCK'` : "WHERE decision = 'BLOCK'";
+  const topBlocked = db.prepare(`
+    SELECT domain, COUNT(*) as count
+    FROM url_events
+    ${topBlockedWhere}
+    GROUP BY domain
+    ORDER BY count DESC
+    LIMIT 10
+  `).all(...params);
+
+  // 6. Recent Detailed Events (up to 100)
+  const events = db.prepare(`
+    SELECT id, client_id, system_name, url, domain, timestamp, decision, threat_level, rule_name, reason
+    FROM url_events
+    ${whereSql}
+    ORDER BY timestamp DESC
+    LIMIT 100
+  `).all(...params);
+
+  // 6b. Per-System Breakdown (Safe, Suspicious, Phishing counts per registered endpoint)
+  const byClient = db.prepare(`
+    SELECT
+      client_id,
+      system_name,
+      COUNT(*) as total,
+      SUM(CASE WHEN decision = 'ALLOW' THEN 1 ELSE 0 END) as safe_count,
+      SUM(CASE WHEN decision = 'WARNING' THEN 1 ELSE 0 END) as suspicious_count,
+      SUM(CASE WHEN decision = 'BLOCK' THEN 1 ELSE 0 END) as phishing_count
+    FROM url_events
+    ${whereSql}
+    GROUP BY client_id, system_name
+    ORDER BY total DESC
+  `).all(...params);
+
+  // 7. Alerts count matching scope & time
+  const alertWhere = [];
+  const alertParams = [];
+  if (computedStartDate) {
+    alertWhere.push('timestamp >= ?');
+    alertParams.push(computedStartDate);
+  }
+  if (computedEndDate) {
+    alertWhere.push('timestamp <= ?');
+    alertParams.push(computedEndDate);
+  }
+  if (scope && scope !== 'ALL') {
+    alertWhere.push('client_id = ?');
+    alertParams.push(scope);
+  }
+  const alertWhereSql = alertWhere.length > 0 ? `WHERE ${alertWhere.join(' AND ')}` : '';
+
+  const alertsCount = db.prepare(`
+    SELECT
+      COUNT(*) as total_alerts,
+      SUM(CASE WHEN severity = 'CRITICAL' THEN 1 ELSE 0 END) as critical_alerts,
+      SUM(CASE WHEN alert_type = 'PHISHING_BLOCKED' THEN 1 ELSE 0 END) as phishing_alerts,
+      SUM(CASE WHEN alert_type = 'SUSPICIOUS_WARNING' THEN 1 ELSE 0 END) as warning_alerts
+    FROM alerts
+    ${alertWhereSql}
+  `).get(...alertParams) || { total_alerts: 0, critical_alerts: 0, phishing_alerts: 0, warning_alerts: 0 };
+
+  res.json({
+    generatedAt: new Date().toISOString(),
+    scope: scope === 'ALL' ? { type: 'ALL', name: 'All Enrolled Systems (Aggregated Enterprise Fleet)' } : {
+      type: 'SINGLE',
+      clientId: scope,
+      name: targetClient?.system_name || scope,
+      hostname: targetClient?.hostname || 'Unknown Host',
+      os: targetClient?.os || 'Unknown OS',
+      browser: targetClient?.browser || 'Chrome',
+      ip: targetClient?.ip_address || '—',
+      status: targetClient?.status || 'OFFLINE'
+    },
+    timeRange: {
+      key: timeRange,
+      startDate: computedStartDate,
+      endDate: computedEndDate || new Date().toISOString()
+    },
+    totals: {
+      total_events: totals.total_events || 0,
+      allowed_events: totals.allowed_events || 0,
+      warning_events: totals.warning_events || 0,
+      blocked_events: totals.blocked_events || 0
+    },
+    threatLevels: byThreatLevel,
+    topBlocked,
+    events,
+    byClient,
+    alerts: alertsCount
   });
 });
 

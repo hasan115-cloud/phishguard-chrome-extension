@@ -112,11 +112,69 @@
     body.suspicious .url-box { color: #fcd34d; border-color: rgba(245,158,11,0.4); }
     body.suspicious .score-pill { background: rgba(245,158,11,0.25); color: #fbbf24; border-color: rgba(245,158,11,0.4); }
     body.suspicious .reasons-title { color: #fde68a; }
+
+    /* Bell Ringing Animation and Notification Bar */
+    @keyframes bellRing {
+        0% { transform: rotate(0); }
+        15% { transform: rotate(18deg); }
+        30% { transform: rotate(-18deg); }
+        45% { transform: rotate(12deg); }
+        60% { transform: rotate(-12deg); }
+        75% { transform: rotate(6deg); }
+        100% { transform: rotate(0); }
+    }
+    .bell-icon {
+        font-size: 1.25rem;
+        display: inline-block;
+    }
+    .bell-ringing {
+        animation: bellRing 0.7s ease-in-out infinite;
+    }
+    .alert-bell-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: rgba(220, 53, 69, 0.25);
+        border: 1px solid #dc3545;
+        border-radius: 8px;
+        padding: 8px 14px;
+        margin-bottom: 20px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #fecaca;
+    }
+    body.suspicious .alert-bell-bar {
+        background: rgba(245, 158, 11, 0.25);
+        border-color: #f59e0b;
+        color: #fef3c7;
+    }
+    .btn-sound-control {
+        background: #dc3545;
+        color: #fff;
+        border: none;
+        padding: 5px 12px;
+        border-radius: 5px;
+        font-size: 0.78rem;
+        cursor: pointer;
+        font-weight: 600;
+        transition: background 0.15s;
+    }
+    .btn-sound-control:hover { background: #bb2d3b; }
+    body.suspicious .btn-sound-control { background: #d97706; }
+    body.suspicious .btn-sound-control:hover { background: #b45309; }
 </style>
 </head>
 <body>
 
 <div class="container">
+    <div class="alert-bell-bar" id="alertBellBar">
+        <div style="display:flex;align-items:center;gap:8px;">
+            <span class="bell-icon bell-ringing" id="bellIcon">🔔</span>
+            <span id="bellText">AUDIBLE SECURITY THREAT ALARM TRIGGERED</span>
+        </div>
+        <button type="button" class="btn-sound-control" id="btnSoundControl">🔊 Alarm Sounding</button>
+    </div>
+
     <div class="icon" id="warningIcon">🛑</div>
     <h1 id="warningHeading">Phishing Site Blocked</h1>
     <div class="subtitle" id="warningSubtitle">

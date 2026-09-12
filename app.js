@@ -19,14 +19,10 @@ function switchTab(tabId) {
     'overview': 'Enterprise Overview',
     'systems': 'Enrolled Systems Fleet',
     'url-history': 'Central URL Audit Trail',
-    'live-feed': 'Real-Time Activity Feed',
     'rules': 'Security Rules Policy',
     'alerts': 'Security Alerts',
-    'incidents': 'Threat Incidents',
-    'reports': 'Reports & Analytics',
-    'audit': 'Administrative Audit Trail',
-    'install': 'Install & Enroll FortiNex Extension',
-    'settings': 'Fleet Configuration'
+    'install': 'Install PhishGuard Extension',
+    'reports': 'Reports & Analytics'
   };
 
   const titleEl = document.getElementById('currentTabTitle');
@@ -40,11 +36,8 @@ function switchTab(tabId) {
   if (tabId === 'url-history') loadUrlHistory();
   if (tabId === 'rules') loadRules();
   if (tabId === 'alerts') loadAlerts();
-  if (tabId === 'incidents') loadIncidents();
   if (tabId === 'reports') loadReports();
-  if (tabId === 'audit') loadAuditLogs();
   if (tabId === 'install') loadInstallTab();
-  if (tabId === 'settings') loadSettings();
 }
 
 // Toast helper
@@ -81,6 +74,18 @@ async function apiFetch(url, options = {}) {
 // Auto-admin login fallback
 async function autoAdminLogin() {
   try {
+    // 1. Try active session bootstrap
+    const sessRes = await fetch('/api/auth/session');
+    if (sessRes.ok) {
+      const data = await sessRes.json();
+      currentAuthToken = data.token;
+      currentUser = data.user;
+      localStorage.setItem('phishguard_admin_token', currentAuthToken);
+      updateUserUI();
+      return;
+    }
+
+    // 2. Fallback to direct credentials
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -125,6 +130,16 @@ async function loadOverviewStats() {
     document.getElementById('cardActiveAlerts').textContent = data.newAlerts || 0;
     document.getElementById('cardCriticalAlerts').textContent = `${data.criticalAlerts || 0} critical`;
 
+    // Telemetry Classification Breakdown (Real Data)
+    const classTotalEl = document.getElementById('overviewClassTotal');
+    const classSafeEl = document.getElementById('overviewClassSafe');
+    const classSuspiciousEl = document.getElementById('overviewClassSuspicious');
+    const classPhishingEl = document.getElementById('overviewClassPhishing');
+    if (classTotalEl) classTotalEl.textContent = data.totalUrlsMonitored || 0;
+    if (classSafeEl) classSafeEl.textContent = data.allowedUrls || 0;
+    if (classSuspiciousEl) classSuspiciousEl.textContent = data.warningUrls || 0;
+    if (classPhishingEl) classPhishingEl.textContent = data.blockedUrls || 0;
+
     // Badges in sidebar
     document.getElementById('onlineBadgeCount').textContent = data.onlineClients || 0;
     document.getElementById('alertBadgeCount').textContent = data.newAlerts || 0;
@@ -134,11 +149,11 @@ async function loadOverviewStats() {
     if (data.recentEvents && data.recentEvents.length > 0) {
       tbody.innerHTML = data.recentEvents.map(e => `
         <tr>
-          <td>${new Date(e.timestamp).toLocaleTimeString()}</td>
+          <td style="white-space:nowrap; font-size:0.8rem;">${new Date(e.timestamp).toLocaleTimeString()}</td>
           <td><span style="font-weight:600;">${escapeHtml(e.system_name || e.client_id)}</span></td>
-          <td><span style="color:#38bdf8;">${escapeHtml(e.domain)}</span></td>
+          <td>${getClassificationBadge(e.decision, e.threat_level)}</td>
+          <td><span style="color:#38bdf8; font-family:monospace; font-size:0.82rem;">${escapeHtml(e.domain)}</span></td>
           <td>${getDecisionBadge(e.decision)}</td>
-          <td>${getThreatBadge(e.threat_level)}</td>
         </tr>
       `).join('');
     } else {
@@ -334,14 +349,14 @@ async function loadUrlHistory(page = 1) {
 
     tbody.innerHTML = events.map(e => `
       <tr>
-        <td style="white-space:nowrap;">${new Date(e.timestamp).toLocaleString()}</td>
-        <td><strong>${escapeHtml(e.system_name || e.client_id)}</strong></td>
+        <td style="white-space:nowrap; font-size:0.8rem;">${new Date(e.timestamp).toLocaleString()}</td>
+        <td><strong>${escapeHtml(e.system_name || e.client_id)}</strong><br><small style="color:var(--text-muted); font-family:monospace;">${escapeHtml(e.client_id)}</small></td>
+        <td>${getClassificationBadge(e.decision, e.threat_level)}</td>
         <td><span style="color:#38bdf8; font-weight:600;">${escapeHtml(e.domain)}</span></td>
         <td style="max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:monospace; font-size:0.78rem;">
           <a href="${escapeHtml(e.url)}" target="_blank" rel="noopener noreferrer" style="color:#94a3b8; text-decoration:none;">${escapeHtml(e.url)}</a>
         </td>
         <td>${getDecisionBadge(e.decision)}</td>
-        <td>${getThreatBadge(e.threat_level)}</td>
         <td style="font-size:0.78rem; color:#cbd5e1;">${escapeHtml(e.reason || e.rule_name || 'Heuristic evaluation')}</td>
       </tr>
     `).join('');
@@ -374,11 +389,15 @@ function initSse() {
   // URL Event listener
   sseSource.addEventListener('URL_EVENT', (e) => {
     try {
-      const data = JSON.parse(e.data);
-      appendLiveFeedItem(data);
       // Refresh stats if on overview
-      if (document.getElementById('tab-overview').classList.contains('active')) {
+      if (document.getElementById('tab-overview')?.classList.contains('active')) {
         loadOverviewStats();
+      }
+      if (document.getElementById('tab-url-history')?.classList.contains('active')) {
+        loadUrlHistory(currentUrlPage);
+      }
+      if (document.getElementById('tab-reports')?.classList.contains('active')) {
+        loadReports();
       }
     } catch {}
   });
@@ -402,70 +421,185 @@ function initSse() {
   });
 }
 
-function appendLiveFeedItem(data) {
-  const container = document.getElementById('liveFeedList');
-  if (!container) return;
-
-  const item = document.createElement('div');
-  item.className = 'feed-item';
-
-  const timeStr = new Date(data.timestamp || Date.now()).toLocaleTimeString();
-  item.innerHTML = `
-    <div class="feed-left">
-      <span>${getDecisionBadge(data.decision)}</span>
-      <span class="feed-url" title="${escapeHtml(data.url)}">${escapeHtml(data.url)}</span>
-    </div>
-    <div class="feed-meta">
-      <strong>${escapeHtml(data.systemName || data.clientId || 'Client')}</strong> • ${timeStr}
-    </div>
-  `;
-
-  container.insertBefore(item, container.firstChild);
-  if (container.children.length > 50) {
-    container.removeChild(container.lastChild);
-  }
-}
-
 // -------------------------------------------------------------
 // 5. SECURITY RULES POLICY
 // -------------------------------------------------------------
+// -------------------------------------------------------------
+// 5. SECURITY RULES POLICY (SECTION A: WHITELIST & SECTION B: PHISHING)
+// -------------------------------------------------------------
 async function loadRules() {
-  const tbody = document.getElementById('rulesTableBody');
-  tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:20px;">Loading policy rules...</td></tr>';
+  const tbodyAll = document.getElementById('rulesTableBody');
+  const tbodyWhitelist = document.getElementById('whitelistTableBody');
+  const tbodyPhishing = document.getElementById('phishingTableBody');
+
+  if (tbodyAll) tbodyAll.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:20px;">Loading policy rules...</td></tr>';
+  if (tbodyWhitelist) tbodyWhitelist.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:16px;">Loading whitelist rules...</td></tr>';
+  if (tbodyPhishing) tbodyPhishing.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:16px;">Loading phishing rules...</td></tr>';
 
   try {
     const res = await fetch('/api/rules');
     const data = await res.json();
     const rules = data.rules || [];
 
-    if (rules.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:20px;">No rules defined. Create your first security policy rule.</td></tr>';
-      return;
+    // Filter into Section A (Whitelist) and Section B (Phishing)
+    const whitelistRules = rules.filter(r => r.type === 'ALLOW');
+    const phishingRules = rules.filter(r => r.type === 'BLOCK' || r.type === 'WARNING');
+
+    // 1. Render Section A: Whitelist
+    if (tbodyWhitelist) {
+      if (whitelistRules.length === 0) {
+        tbodyWhitelist.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:16px;">No whitelist rules defined yet. Domains entered above will bypass checks and be marked SAFE.</td></tr>';
+      } else {
+        tbodyWhitelist.innerHTML = whitelistRules.map(r => `
+          <tr>
+            <td><span class="badge-pill badge-allow">SAFE / ALLOWED</span></td>
+            <td><code style="color:#10b981; font-weight:700; font-size:0.88rem;">${escapeHtml(r.pattern)}</code></td>
+            <td style="color:var(--text-muted); font-size:0.82rem;">${escapeHtml(r.description || 'Administrative Whitelist')}</td>
+            <td><strong>${r.priority}</strong></td>
+            <td>
+              <button class="btn-header" style="${r.enabled ? 'color:#10b981; font-weight:600;' : 'color:#94a3b8;'}" onclick="toggleRule('${r.id}')">
+                ${r.enabled ? '● Active' : '○ Disabled'}
+              </button>
+            </td>
+            <td>
+              <button class="btn-header" style="color:#ef4444; padding:4px 10px;" onclick="deleteRule('${r.id}')">Delete</button>
+            </td>
+          </tr>
+        `).join('');
+      }
     }
 
-    tbody.innerHTML = rules.map(r => `
-      <tr>
-        <td>${getDecisionBadge(r.type)}</td>
-        <td><code style="color:#38bdf8; font-weight:600;">${escapeHtml(r.pattern)}</code></td>
-        <td><span style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted);">${r.target_type}</span></td>
-        <td><strong>${r.priority}</strong></td>
-        <td>${getThreatBadge(r.severity)}</td>
-        <td style="max-width:260px;">${escapeHtml(r.description || '—')}</td>
-        <td>
-          <button class="btn-header" style="${r.enabled ? 'color:#10b981;' : 'color:#94a3b8;'}" onclick="toggleRule('${r.id}')">
-            ${r.enabled ? '● Active' : '○ Disabled'}
-          </button>
-        </td>
-        <td>
-          <div style="display:flex; gap:6px;">
-            <button class="btn-header" onclick="openEditRuleModal('${r.id}')">Edit</button>
-            <button class="btn-header" style="color:#ef4444;" onclick="deleteRule('${r.id}')">Delete</button>
-          </div>
-        </td>
-      </tr>
-    `).join('');
+    // 2. Render Section B: Phishing
+    if (tbodyPhishing) {
+      if (phishingRules.length === 0) {
+        tbodyPhishing.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:16px;">No phishing rules defined yet. Domains entered above will be blocked and sound the threat alarm.</td></tr>';
+      } else {
+        tbodyPhishing.innerHTML = phishingRules.map(r => `
+          <tr>
+            <td><span class="badge-pill ${r.type === 'BLOCK' ? 'badge-block' : 'badge-warning'}">${r.type === 'BLOCK' ? 'PHISHING / BLOCK' : 'SUSPICIOUS'}</span></td>
+            <td><code style="color:#ef4444; font-weight:700; font-size:0.88rem;">${escapeHtml(r.pattern)}</code></td>
+            <td style="color:var(--text-muted); font-size:0.82rem;">${escapeHtml(r.description || 'Threat Blocklist')}</td>
+            <td>${getThreatBadge(r.severity)}</td>
+            <td><strong>${r.priority}</strong></td>
+            <td>
+              <button class="btn-header" style="${r.enabled ? 'color:#10b981; font-weight:600;' : 'color:#94a3b8;'}" onclick="toggleRule('${r.id}')">
+                ${r.enabled ? '● Active' : '○ Disabled'}
+              </button>
+            </td>
+            <td>
+              <button class="btn-header" style="color:#ef4444; padding:4px 10px;" onclick="deleteRule('${r.id}')">Delete</button>
+            </td>
+          </tr>
+        `).join('');
+      }
+    }
+
+    // 3. Render Master Rules List
+    if (tbodyAll) {
+      if (rules.length === 0) {
+        tbodyAll.innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:20px;">No rules defined.</td></tr>';
+      } else {
+        tbodyAll.innerHTML = rules.map(r => `
+          <tr>
+            <td>${getDecisionBadge(r.type)}</td>
+            <td><code style="color:#38bdf8; font-weight:600;">${escapeHtml(r.pattern)}</code></td>
+            <td><span style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted);">${r.target_type}</span></td>
+            <td><strong>${r.priority}</strong></td>
+            <td>${getThreatBadge(r.severity)}</td>
+            <td style="max-width:260px;">${escapeHtml(r.description || '—')}</td>
+            <td>
+              <button class="btn-header" style="${r.enabled ? 'color:#10b981;' : 'color:#94a3b8;'}" onclick="toggleRule('${r.id}')">
+                ${r.enabled ? '● Active' : '○ Disabled'}
+              </button>
+            </td>
+            <td>
+              <div style="display:flex; gap:6px;">
+                <button class="btn-header" onclick="openEditRuleModal('${r.id}')">Edit</button>
+                <button class="btn-header" style="color:#ef4444;" onclick="deleteRule('${r.id}')">Delete</button>
+              </div>
+            </td>
+          </tr>
+        `).join('');
+      }
+    }
   } catch (err) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:#ef4444;">Failed to load rules.</td></tr>';
+    if (tbodyAll) tbodyAll.innerHTML = '<tr><td colspan="8" style="text-align:center; color:#ef4444;">Failed to load rules.</td></tr>';
+  }
+}
+
+async function addQuickWhitelistRule() {
+  const urlInput = document.getElementById('whitelistUrlInput');
+  const descInput = document.getElementById('whitelistDescInput');
+  const rawVal = (urlInput ? urlInput.value : '').trim();
+  const desc = (descInput ? descInput.value : '').trim();
+
+  if (!rawVal) {
+    showToast('Please enter a URL or domain to whitelist', '⚠️');
+    return;
+  }
+
+  try {
+    const res = await apiFetch('/api/rules', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'ALLOW',
+        pattern: rawVal,
+        targetType: 'domain',
+        severity: 'LOW',
+        priority: 100,
+        description: desc || `Administrative Whitelist: ${rawVal}`
+      })
+    });
+
+    if (res.ok) {
+      showToast('✅ Whitelist rule saved successfully to persistent database');
+      if (urlInput) urlInput.value = '';
+      if (descInput) descInput.value = '';
+      loadRules();
+    } else {
+      const err = await res.json();
+      showToast(err.error || 'Failed to save whitelist rule', '⚠️');
+    }
+  } catch (e) {
+    showToast('Failed to contact server', '⚠️');
+  }
+}
+
+async function addQuickPhishingRule() {
+  const urlInput = document.getElementById('phishingUrlInput');
+  const descInput = document.getElementById('phishingDescInput');
+  const rawVal = (urlInput ? urlInput.value : '').trim();
+  const desc = (descInput ? descInput.value : '').trim();
+
+  if (!rawVal) {
+    showToast('Please enter a URL or domain to classify as Phishing', '⚠️');
+    return;
+  }
+
+  try {
+    const res = await apiFetch('/api/rules', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'BLOCK',
+        pattern: rawVal,
+        targetType: 'domain',
+        severity: 'HIGH',
+        priority: 100,
+        description: desc || `Phishing Threat Blocklist: ${rawVal}`
+      })
+    });
+
+    if (res.ok) {
+      showToast('🚨 Phishing rule saved successfully to persistent database');
+      if (urlInput) urlInput.value = '';
+      if (descInput) descInput.value = '';
+      loadRules();
+    } else {
+      const err = await res.json();
+      showToast(err.error || 'Failed to save phishing rule', '⚠️');
+    }
+  } catch (e) {
+    showToast('Failed to contact server', '⚠️');
   }
 }
 
@@ -611,125 +745,333 @@ async function updateAlertStatus(id, newStatus) {
 }
 
 // -------------------------------------------------------------
-// 7. INCIDENTS
+// 7. REPORTS & ANALYTICS
 // -------------------------------------------------------------
-async function loadIncidents() {
-  const tbody = document.getElementById('incidentsTableBody');
-  tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:20px;">Loading investigation cases...</td></tr>';
+let currentReportData = null;
 
-  try {
-    const res = await fetch('/api/incidents');
-    const data = await res.json();
-    const incidents = data.incidents || [];
-
-    if (incidents.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:20px;">No open incidents. All endpoints clean.</td></tr>';
-      return;
-    }
-
-    tbody.innerHTML = incidents.map(inc => `
-      <tr>
-        <td><span class="badge-pill ${inc.status === 'OPEN' ? 'badge-block' : 'badge-allow'}">${inc.status}</span></td>
-        <td><strong>${escapeHtml(inc.title)}</strong></td>
-        <td>${getThreatBadge(inc.severity)}</td>
-        <td>${escapeHtml(inc.system_name || inc.client_id)}</td>
-        <td><strong>${inc.related_alert_count}</strong> alerts</td>
-        <td>${new Date(inc.last_activity).toLocaleString()}</td>
-        <td style="font-size:0.75rem; color:#cbd5e1;">${escapeHtml(inc.notes || '—')}</td>
-        <td>
-          <select class="filter-select" style="padding:3px 8px; font-size:0.75rem;" onchange="updateIncidentStatus('${inc.id}', this.value)">
-            <option value="OPEN" ${inc.status === 'OPEN' ? 'selected' : ''}>OPEN</option>
-            <option value="INVESTIGATING" ${inc.status === 'INVESTIGATING' ? 'selected' : ''}>INVESTIGATING</option>
-            <option value="RESOLVED" ${inc.status === 'RESOLVED' ? 'selected' : ''}>RESOLVED</option>
-            <option value="CLOSED" ${inc.status === 'CLOSED' ? 'selected' : ''}>CLOSED</option>
-          </select>
-        </td>
-      </tr>
-    `).join('');
-  } catch (err) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:#ef4444;">Failed to load incidents.</td></tr>';
-  }
-}
-
-async function updateIncidentStatus(id, status) {
-  try {
-    const res = await apiFetch(`/api/incidents/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify({ status })
-    });
-    if (res.ok) {
-      showToast(`Incident updated to ${status}`);
-      loadIncidents();
-    }
-  } catch {}
-}
-
-// -------------------------------------------------------------
-// 8. REPORTS & ANALYTICS
-// -------------------------------------------------------------
 async function loadReports() {
+  const scopeSingleRadio = document.getElementById('scopeSingleRadio');
+  const singlePickerContainer = document.getElementById('singleSystemPickerContainer');
+  const singleSelect = document.getElementById('reportSingleSystemSelect');
+  const timeSelect = document.getElementById('reportTimeRange');
+
+  const isSingle = scopeSingleRadio && scopeSingleRadio.checked;
+  if (singlePickerContainer) {
+    singlePickerContainer.style.display = isSingle ? 'block' : 'none';
+  }
+
+  // Populate single systems dropdown if empty
+  if (singleSelect && singleSelect.options.length <= 1) {
+    try {
+      const cRes = await fetch('/api/clients');
+      const cData = await cRes.json();
+      const clients = cData.clients || [];
+      clients.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.client_id;
+        opt.textContent = `${c.system_name || c.client_id} (${c.client_id}) - ${c.status}`;
+        singleSelect.appendChild(opt);
+      });
+    } catch {}
+  }
+
+  let scope = 'ALL';
+  if (isSingle) {
+    scope = singleSelect && singleSelect.value ? singleSelect.value : '';
+    if (!scope && singleSelect && singleSelect.options.length > 1) {
+      scope = singleSelect.options[1].value;
+      singleSelect.value = scope;
+    }
+  }
+
+  const timeRange = timeSelect ? timeSelect.value : 'ALL';
+
+  const tbodyEvents = document.getElementById('reportDetailedEventsTbody');
+  const tbodyPerSystem = document.getElementById('reportPerSystemTbody');
+
+  if (tbodyEvents) {
+    tbodyEvents.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:20px; color:var(--text-muted);">Fetching real telemetry from database...</td></tr>';
+  }
+
   try {
-    const res = await fetch('/api/reports/summary');
+    const res = await fetch(`/api/reports/detailed?scope=${encodeURIComponent(scope || 'ALL')}&timeRange=${encodeURIComponent(timeRange)}`);
     const data = await res.json();
+    currentReportData = data;
 
+    // Header & metadata
+    const genTimeEl = document.getElementById('reportGeneratedTime');
+    if (genTimeEl) genTimeEl.textContent = new Date(data.generatedAt || Date.now()).toLocaleString();
+
+    const scopeLabel = document.getElementById('reportScopeLabel');
+    if (scopeLabel) {
+      scopeLabel.textContent = isSingle ? (data.scope?.name || 'Single System') : 'All Systems (Enterprise Fleet)';
+    }
+
+    const metaCard = document.getElementById('reportSystemMetaCard');
+    if (metaCard) {
+      if (data.scope?.type === 'SINGLE') {
+        metaCard.style.display = 'block';
+        const sn = document.getElementById('repMetaSysName');
+        const cid = document.getElementById('repMetaClientId');
+        const hn = document.getElementById('repMetaHostname');
+        const os = document.getElementById('repMetaOS');
+        const ip = document.getElementById('repMetaIP');
+        const st = document.getElementById('repMetaStatus');
+        if (sn) sn.textContent = data.scope.name || '—';
+        if (cid) cid.textContent = data.scope.clientId || '—';
+        if (hn) hn.textContent = data.scope.hostname || '—';
+        if (os) os.textContent = data.scope.os || '—';
+        if (ip) ip.textContent = data.scope.ip || '—';
+        if (st) {
+          st.textContent = data.scope.status || 'OFFLINE';
+          st.className = `badge-pill ${data.scope.status === 'ONLINE' ? 'badge-allow' : 'badge-block'}`;
+        }
+      } else {
+        metaCard.style.display = 'none';
+      }
+    }
+
+    // Totals
     const t = data.totals || {};
-    document.getElementById('repTotalEvents').textContent = t.total_events || 0;
-    document.getElementById('repBlockedEvents').textContent = t.blocked_events || 0;
-    document.getElementById('repWarningEvents').textContent = t.warning_events || 0;
-    document.getElementById('repAllowedEvents').textContent = t.allowed_events || 0;
+    const totEl = document.getElementById('repTotalEvents');
+    const alwEl = document.getElementById('repAllowedEvents');
+    const blkEl = document.getElementById('repBlockedEvents');
+    const wrnEl = document.getElementById('repWarningEvents');
+    if (totEl) totEl.textContent = t.total_events || 0;
+    if (alwEl) alwEl.textContent = t.allowed_events || 0;
+    if (blkEl) blkEl.textContent = t.blocked_events || 0;
+    if (wrnEl) wrnEl.textContent = t.warning_events || 0;
 
-    // Threat levels
-    const levelsEl = document.getElementById('reportThreatLevelsList');
-    levelsEl.innerHTML = (data.byThreatLevel || []).map(l => `
-      <div style="display:flex; justify-content:space-between; padding:8px 12px; background:var(--bg-input); border-radius:6px;">
-        <span>${getThreatBadge(l.threat_level)}</span>
-        <strong>${l.count} occurrences</strong>
-      </div>
-    `).join('') || '<div style="color:var(--text-muted); text-align:center;">No data available</div>';
+    // 2. Summary Counts Per System Table
+    if (tbodyPerSystem) {
+      const byClient = data.byClient || [];
+      if (byClient.length > 0) {
+        tbodyPerSystem.innerHTML = byClient.map(c => `
+          <tr>
+            <td>
+              <strong>${escapeHtml(c.system_name || c.client_id)}</strong>
+              <br><span style="font-size:0.75rem; color:var(--text-muted); font-family:monospace;">${escapeHtml(c.client_id)}</span>
+            </td>
+            <td style="color:#10b981; font-weight:700;">${c.safe_count || 0} Safe</td>
+            <td style="color:#f59e0b; font-weight:700;">${c.suspicious_count || 0} Suspicious</td>
+            <td style="color:#ef4444; font-weight:700;">${c.phishing_count || 0} Phishing</td>
+            <td><strong>${c.total || 0}</strong></td>
+          </tr>
+        `).join('');
+      } else if (data.scope?.type === 'SINGLE') {
+        tbodyPerSystem.innerHTML = `
+          <tr>
+            <td><strong>${escapeHtml(data.scope.name || data.scope.clientId)}</strong></td>
+            <td style="color:#10b981; font-weight:700;">${t.allowed_events || 0} Safe</td>
+            <td style="color:#f59e0b; font-weight:700;">${t.warning_events || 0} Suspicious</td>
+            <td style="color:#ef4444; font-weight:700;">${t.blocked_events || 0} Phishing</td>
+            <td><strong>${t.total_events || 0}</strong></td>
+          </tr>
+        `;
+      } else {
+        tbodyPerSystem.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:16px; color:var(--text-muted);">No endpoint telemetry recorded yet.</td></tr>';
+      }
+    }
 
-    // By client
-    const clientsEl = document.getElementById('reportClientsList');
-    clientsEl.innerHTML = (data.byClient || []).map(c => `
-      <div style="display:flex; justify-content:space-between; padding:8px 12px; background:var(--bg-input); border-radius:6px;">
-        <span><strong>${escapeHtml(c.system_name || c.client_id)}</strong></span>
-        <span>${c.count} events (<span style="color:#ef4444;">${c.blocked} blocked</span>)</span>
-      </div>
-    `).join('') || '<div style="color:var(--text-muted); text-align:center;">No client activity</div>';
+    // 3. Detailed events audit trail table
+    if (tbodyEvents) {
+      const events = data.events || [];
+      if (events.length === 0) {
+        tbodyEvents.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:24px; color:var(--text-muted);">No navigation or threat records match this filter criteria.</td></tr>';
+      } else {
+        tbodyEvents.innerHTML = events.map(e => {
+          let classificationBadge = '<span class="badge-pill badge-allow">SAFE</span>';
+          if (e.decision === 'BLOCK') {
+            classificationBadge = '<span class="badge-pill badge-block">PHISHING</span>';
+          } else if (e.decision === 'WARNING') {
+            classificationBadge = '<span class="badge-pill badge-warning">SUSPICIOUS</span>';
+          }
+
+          return `
+            <tr>
+              <td style="white-space:nowrap; font-size:0.8rem;">${new Date(e.timestamp).toLocaleString()}</td>
+              <td><strong>${escapeHtml(e.system_name || e.client_id || 'Client')}</strong></td>
+              <td><code style="color:#38bdf8;">${escapeHtml(e.domain)}</code></td>
+              <td style="max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(e.url)}">
+                <span style="font-size:0.8rem; color:#cbd5e1;">${escapeHtml(e.url)}</span>
+              </td>
+              <td>${classificationBadge}</td>
+              <td>${getThreatBadge(e.threat_level)}</td>
+              <td style="font-size:0.78rem; color:var(--text-muted);">${escapeHtml(e.reason || e.rule_name || 'Standard evaluation')}</td>
+            </tr>
+          `;
+        }).join('');
+      }
+    }
   } catch (err) {
-    console.error('Failed to load reports', err);
+    console.error('Failed to load detailed report:', err);
+    if (tbodyEvents) {
+      tbodyEvents.innerHTML = '<tr><td colspan="7" style="text-align:center; color:#ef4444; padding:20px;">Failed to load report from server database.</td></tr>';
+    }
   }
 }
 
-// -------------------------------------------------------------
-// 9. AUDIT LOGS
-// -------------------------------------------------------------
-async function loadAuditLogs() {
-  const tbody = document.getElementById('auditLogsTableBody');
-  tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:20px;">Loading audit trail...</td></tr>';
+function downloadReportPdf() {
+  if (!currentReportData) {
+    showToast('Report data is still loading...', '⚠️');
+    return;
+  }
+
+  const { jsPDF } = window.jspdf || {};
+  if (!jsPDF) {
+    window.print();
+    return;
+  }
 
   try {
-    const res = await fetch('/api/audit-logs');
-    const data = await res.json();
-    const logs = data.logs || [];
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
-    if (logs.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:20px;">No audit records found.</td></tr>';
-      return;
+    // Header Banner
+    doc.setFillColor(15, 23, 42); // slate-900
+    doc.rect(0, 0, 210, 32, 'F');
+
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.text('PhishGuard Enterprise Threat Assessment Report', 14, 14);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9.5);
+    doc.setTextColor(148, 163, 184); // slate-400
+    doc.text('Endpoint Telemetry, Policy Enforcements & Threat Audit', 14, 22);
+
+    // Metadata Box
+    doc.setFontSize(9);
+    doc.setTextColor(51, 65, 85);
+    const genDate = new Date(currentReportData.generatedAt || Date.now()).toLocaleString();
+    const scopeName = currentReportData.scope?.name || 'All Systems';
+
+    doc.text(`Generated: ${genDate}`, 14, 38);
+    doc.text(`Report Scope: ${scopeName}`, 14, 44);
+
+    if (currentReportData.scope?.type === 'SINGLE') {
+      const s = currentReportData.scope;
+      doc.text(`Client ID: ${s.clientId}  |  IP: ${s.ip}  |  OS: ${s.os}  |  Status: ${s.status}`, 14, 50);
     }
 
-    tbody.innerHTML = logs.map(l => `
-      <tr>
-        <td style="white-space:nowrap;">${new Date(l.timestamp).toLocaleString()}</td>
-        <td><strong>${escapeHtml(l.admin_user)}</strong></td>
-        <td><code style="color:#38bdf8;">${escapeHtml(l.action)}</code></td>
-        <td>${escapeHtml(l.target || '—')}</td>
-        <td><span class="badge-pill ${l.result === 'SUCCESS' ? 'badge-allow' : 'badge-block'}">${l.result}</span></td>
-        <td><code>${escapeHtml(l.ip_address || '127.0.0.1')}</code></td>
-        <td style="font-size:0.75rem; color:#94a3b8;">${escapeHtml(l.details || '')}</td>
-      </tr>
-    `).join('');
+    // Summary Metrics Box
+    const t = currentReportData.totals || {};
+    const startY = currentReportData.scope?.type === 'SINGLE' ? 55 : 49;
+
+    doc.setFillColor(241, 245, 249);
+    doc.roundedRect(14, startY, 182, 17, 2, 2, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`Total Scanned: ${t.total_events || 0}`, 20, startY + 7);
+    doc.setTextColor(16, 185, 129);
+    doc.text(`Safe / Allowed: ${t.allowed_events || 0}`, 65, startY + 7);
+    doc.setTextColor(239, 68, 68);
+    doc.text(`Phishing Intercepted: ${t.blocked_events || 0}`, 115, startY + 7);
+    doc.setTextColor(245, 158, 11);
+    doc.text(`Suspicious Warnings: ${t.warning_events || 0}`, 160, startY + 7);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text('Verified Endpoint Security Audit Telemetry', 20, startY + 13);
+
+    let nextY = startY + 22;
+
+    // Summary Counts Per System Table (if present)
+    if (currentReportData.byClient && currentReportData.byClient.length > 0 && doc.autoTable) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text('Summary Counts Per System / Endpoint:', 14, nextY + 3);
+
+      const clientRows = currentReportData.byClient.map(c => [
+        c.system_name || c.client_id || 'Endpoint',
+        `${c.safe_count || 0} Safe`,
+        `${c.suspicious_count || 0} Suspicious`,
+        `${c.phishing_count || 0} Phishing`,
+        String(c.total || 0)
+      ]);
+
+      doc.autoTable({
+        startY: nextY + 5,
+        head: [['System / Endpoint', 'Safe Count', 'Suspicious Count', 'Phishing Count', 'Total Monitored']],
+        body: clientRows,
+        theme: 'striped',
+        headStyles: {
+          fillColor: [51, 65, 85],
+          textColor: [255, 255, 255],
+          fontSize: 8,
+          fontStyle: 'bold'
+        },
+        styles: {
+          fontSize: 7.5,
+          cellPadding: 2,
+          textColor: [30, 41, 59]
+        }
+      });
+
+      nextY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 8 : nextY + 30;
+    }
+
+    // Monitored URL Events Audit Trail Table
+    const tableData = (currentReportData.events || []).map(e => [
+      new Date(e.timestamp).toLocaleTimeString(),
+      e.system_name || e.client_id || '—',
+      e.domain || '—',
+      e.decision === 'BLOCK' ? 'PHISHING' : (e.decision === 'WARNING' ? 'SUSPICIOUS' : 'SAFE'),
+      e.threat_level || 'SAFE',
+      e.reason ? (e.reason.length > 55 ? e.reason.substring(0, 52) + '...' : e.reason) : 'Standard evaluation'
+    ]);
+
+    if (doc.autoTable) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text('Monitored Navigation & Classification Audit Trail:', 14, nextY + 3);
+
+      doc.autoTable({
+        startY: nextY + 5,
+        head: [['Time', 'System', 'Domain', 'Classification', 'Threat', 'Detection / Policy Reason']],
+        body: tableData.length > 0 ? tableData : [['—', 'No events', 'No events logged for this filter', '—', '—', '—']],
+        theme: 'grid',
+        headStyles: {
+          fillColor: [30, 41, 59],
+          textColor: [255, 255, 255],
+          fontSize: 8,
+          fontStyle: 'bold'
+        },
+        styles: {
+          fontSize: 7.5,
+          cellPadding: 2.2,
+          textColor: [30, 41, 59]
+        },
+        columnStyles: {
+          0: { cellWidth: 20 },
+          1: { cellWidth: 30 },
+          2: { cellWidth: 38 },
+          3: { cellWidth: 22 },
+          4: { cellWidth: 18 },
+          5: { cellWidth: 54 }
+        },
+        didParseCell: (hookData) => {
+          if (hookData.section === 'body' && hookData.column.index === 3) {
+            const val = hookData.cell.raw;
+            if (val === 'PHISHING') hookData.cell.styles.textColor = [220, 38, 38];
+            else if (val === 'SUSPICIOUS') hookData.cell.styles.textColor = [217, 119, 6];
+            else if (val === 'SAFE') hookData.cell.styles.textColor = [16, 185, 129];
+          }
+        }
+      });
+    }
+
+    const safeScope = (currentReportData.scope?.name || 'All').replace(/[^a-zA-Z0-9_-]/g, '_');
+    doc.save(`PhishGuard-Report-${safeScope}-${Date.now()}.pdf`);
+    showToast('PDF report downloaded successfully');
   } catch (err) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:#ef4444;">Failed to load audit records.</td></tr>';
+    console.error('PDF export error:', err);
+    window.print();
   }
 }
 
@@ -749,7 +1091,7 @@ function downloadExtensionZip() {
   const targetInput = document.getElementById('targetServerUrlInput');
   const serverUrl = targetInput ? targetInput.value.trim() : window.location.origin;
   const downloadUrl = `/api/extension/download?serverUrl=${encodeURIComponent(serverUrl)}`;
-  showToast('Packaging FortiNex extension archive...', '📦');
+  showToast('Packaging PhishGuard Extension archive...', '📦');
   window.location.href = downloadUrl;
 }
 
@@ -942,54 +1284,6 @@ async function runManualCheckUrl(e) {
 }
 
 // -------------------------------------------------------------
-// 11. FLEET SETTINGS
-// -------------------------------------------------------------
-async function loadSettings() {
-  try {
-    const res = await fetch('/api/settings');
-    const data = await res.json();
-    const s = data.settings || {};
-
-    if (s.HEARTBEAT_TIMEOUT_SECONDS) {
-      document.getElementById('settingHeartbeatTimeout').value = s.HEARTBEAT_TIMEOUT_SECONDS;
-    }
-    if (s.ALLOW_USER_BYPASS) {
-      document.getElementById('settingAllowBypass').value = s.ALLOW_USER_BYPASS;
-    }
-    if (s.ENROLLMENT_TOKEN) {
-      document.getElementById('settingEnrollmentToken').value = s.ENROLLMENT_TOKEN;
-    }
-    if (s.AUTO_CREATE_INCIDENTS) {
-      document.getElementById('settingAutoIncidents').value = s.AUTO_CREATE_INCIDENTS;
-    }
-  } catch {}
-}
-
-async function saveFleetSettings() {
-  const settings = {
-    HEARTBEAT_TIMEOUT_SECONDS: document.getElementById('settingHeartbeatTimeout').value,
-    ALLOW_USER_BYPASS: document.getElementById('settingAllowBypass').value,
-    ENROLLMENT_TOKEN: document.getElementById('settingEnrollmentToken').value,
-    AUTO_CREATE_INCIDENTS: document.getElementById('settingAutoIncidents').value
-  };
-
-  try {
-    const res = await apiFetch('/api/settings', {
-      method: 'PUT',
-      body: JSON.stringify({ settings })
-    });
-
-    if (res.ok) {
-      showToast('Fleet settings saved successfully');
-    } else {
-      showToast('Failed to save settings', '⚠️');
-    }
-  } catch {
-    showToast('Error connecting to server', '⚠️');
-  }
-}
-
-// -------------------------------------------------------------
 // Helpers & Utilities
 // -------------------------------------------------------------
 function getDecisionBadge(decision) {
@@ -1038,11 +1332,14 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Top Bar buttons
-  document.getElementById('btnRefreshAll').addEventListener('click', () => {
-    const activeTab = document.querySelector('.nav-item.active')?.dataset.tab || 'overview';
-    switchTab(activeTab);
-    showToast('Dashboard refreshed');
-  });
+  const btnRefreshAll = document.getElementById('btnRefreshAll');
+  if (btnRefreshAll) {
+    btnRefreshAll.addEventListener('click', () => {
+      const activeTab = document.querySelector('.nav-item.active')?.dataset.tab || 'overview';
+      switchTab(activeTab);
+      showToast('Dashboard refreshed');
+    });
+  }
 
   // Top bar Check URL modal button
   const btnTestModal = document.getElementById('btnTestUrlCheckModal');
@@ -1101,66 +1398,177 @@ document.addEventListener('DOMContentLoaded', () => {
     checkUrlForm.addEventListener('submit', runManualCheckUrl);
   }
 
-  // Settings
-  document.getElementById('btnSaveFleetSettings').addEventListener('click', saveFleetSettings);
-
   // Systems
-  document.getElementById('btnRefreshSystems').addEventListener('click', loadSystems);
+  const btnRefreshSystems = document.getElementById('btnRefreshSystems');
+  if (btnRefreshSystems) {
+    btnRefreshSystems.addEventListener('click', loadSystems);
+  }
+
+  const filterSystemSearch = document.getElementById('filterSystemSearch');
+  if (filterSystemSearch) {
+    filterSystemSearch.addEventListener('input', () => {
+      renderSystemsTable(allLoadedSystems);
+    });
+  }
+
+  const filterSystemStatus = document.getElementById('filterSystemStatus');
+  if (filterSystemStatus) {
+    filterSystemStatus.addEventListener('change', () => {
+      renderSystemsTable(allLoadedSystems);
+    });
+  }
 
   // URL History
-  document.getElementById('btnApplyUrlFilters').addEventListener('click', () => loadUrlHistory(1));
-  document.getElementById('btnRefreshUrlHistory').addEventListener('click', () => loadUrlHistory(currentUrlPage));
-  document.getElementById('btnUrlHistoryPrev').addEventListener('click', () => {
-    if (currentUrlPage > 1) loadUrlHistory(currentUrlPage - 1);
-  });
-  document.getElementById('btnUrlHistoryNext').addEventListener('click', () => {
-    loadUrlHistory(currentUrlPage + 1);
-  });
-  document.getElementById('btnExportUrlHistoryCsv').addEventListener('click', () => {
-    window.location.href = '/api/reports/export-csv?type=url-events';
-  });
+  const btnApplyUrlFilters = document.getElementById('btnApplyUrlFilters');
+  if (btnApplyUrlFilters) {
+    btnApplyUrlFilters.addEventListener('click', () => loadUrlHistory(1));
+  }
+
+  const btnRefreshUrlHistory = document.getElementById('btnRefreshUrlHistory');
+  if (btnRefreshUrlHistory) {
+    btnRefreshUrlHistory.addEventListener('click', () => loadUrlHistory(currentUrlPage));
+  }
+
+  const btnUrlHistoryPrev = document.getElementById('btnUrlHistoryPrev');
+  if (btnUrlHistoryPrev) {
+    btnUrlHistoryPrev.addEventListener('click', () => {
+      if (currentUrlPage > 1) loadUrlHistory(currentUrlPage - 1);
+    });
+  }
+
+  const btnUrlHistoryNext = document.getElementById('btnUrlHistoryNext');
+  if (btnUrlHistoryNext) {
+    btnUrlHistoryNext.addEventListener('click', () => {
+      loadUrlHistory(currentUrlPage + 1);
+    });
+  }
+
+  const btnExportUrlHistoryCsv = document.getElementById('btnExportUrlHistoryCsv');
+  if (btnExportUrlHistoryCsv) {
+    btnExportUrlHistoryCsv.addEventListener('click', () => {
+      window.location.href = '/api/reports/export-csv?type=url-events';
+    });
+  }
 
   // Alerts
-  document.getElementById('btnRefreshAlerts').addEventListener('click', loadAlerts);
-  document.getElementById('filterAlertStatus').addEventListener('change', loadAlerts);
-  document.getElementById('filterAlertSeverity').addEventListener('change', loadAlerts);
-  document.getElementById('btnExportAlertsCsv').addEventListener('click', () => {
-    window.location.href = '/api/reports/export-csv?type=alerts';
-  });
+  const btnRefreshAlerts = document.getElementById('btnRefreshAlerts');
+  if (btnRefreshAlerts) {
+    btnRefreshAlerts.addEventListener('click', loadAlerts);
+  }
 
-  // Incidents
-  document.getElementById('btnRefreshIncidents').addEventListener('click', loadIncidents);
+  const filterAlertStatus = document.getElementById('filterAlertStatus');
+  if (filterAlertStatus) {
+    filterAlertStatus.addEventListener('change', loadAlerts);
+  }
 
-  // Audit
-  document.getElementById('btnRefreshAudit').addEventListener('click', loadAuditLogs);
+  const filterAlertSeverity = document.getElementById('filterAlertSeverity');
+  if (filterAlertSeverity) {
+    filterAlertSeverity.addEventListener('change', loadAlerts);
+  }
 
-  // Reports
-  document.getElementById('btnDownloadReportCsv').addEventListener('click', () => {
-    window.location.href = '/api/reports/export-csv?type=url-events';
-  });
-  document.getElementById('btnDownloadAlertsReportCsv').addEventListener('click', () => {
-    window.location.href = '/api/reports/export-csv?type=alerts';
-  });
+  const btnExportAlertsCsv = document.getElementById('btnExportAlertsCsv');
+  if (btnExportAlertsCsv) {
+    btnExportAlertsCsv.addEventListener('click', () => {
+      window.location.href = '/api/reports/export-csv?type=alerts';
+    });
+  }
 
-  // Rules
-  document.getElementById('btnOpenNewRuleModal').addEventListener('click', openNewRuleModal);
-  document.getElementById('ruleForm').addEventListener('submit', saveRuleForm);
+  // Reports Scope & Filters
+  const scopeAllRadio = document.getElementById('scopeAllRadio');
+  const scopeSingleRadio = document.getElementById('scopeSingleRadio');
+  const reportSingleSystemSelect = document.getElementById('reportSingleSystemSelect');
+  const reportTimeRange = document.getElementById('reportTimeRange');
 
-  // Live feed
-  document.getElementById('btnClearLiveFeed').addEventListener('click', () => {
-    document.getElementById('liveFeedList').innerHTML = '<div style="text-align:center; padding:30px; color:var(--text-muted); font-size:0.85rem;">Log cleared. Waiting for new events...</div>';
-  });
+  if (scopeAllRadio) {
+    scopeAllRadio.addEventListener('change', loadReports);
+  }
+  if (scopeSingleRadio) {
+    scopeSingleRadio.addEventListener('change', loadReports);
+  }
+  if (reportSingleSystemSelect) {
+    reportSingleSystemSelect.addEventListener('change', loadReports);
+  }
+  if (reportTimeRange) {
+    reportTimeRange.addEventListener('change', loadReports);
+  }
+
+  const btnRefreshReport = document.getElementById('btnRefreshReport');
+  if (btnRefreshReport) {
+    btnRefreshReport.addEventListener('click', loadReports);
+  }
+
+  const btnPrintReport = document.getElementById('btnPrintReport');
+  if (btnPrintReport) {
+    btnPrintReport.addEventListener('click', () => window.print());
+  }
+
+  const btnDownloadReportPdf = document.getElementById('btnDownloadReportPdf');
+  if (btnDownloadReportPdf) {
+    btnDownloadReportPdf.addEventListener('click', downloadReportPdf);
+  }
+
+  const btnDownloadReportCsv = document.getElementById('btnDownloadReportCsv');
+  if (btnDownloadReportCsv) {
+    btnDownloadReportCsv.addEventListener('click', () => {
+      const isSingle = document.getElementById('scopeSingleRadio')?.checked;
+      const scope = isSingle ? (document.getElementById('reportSingleSystemSelect')?.value || 'ALL') : 'ALL';
+      const timeRange = document.getElementById('reportTimeRange')?.value || 'ALL';
+      window.location.href = `/api/reports/export-csv?type=url-events&scope=${encodeURIComponent(scope)}&timeRange=${encodeURIComponent(timeRange)}`;
+    });
+  }
+
+  // Rules: Quick Add Whitelist and Phishing
+  const btnAddWhitelistBtn = document.getElementById('btnAddWhitelistBtn');
+  if (btnAddWhitelistBtn) {
+    btnAddWhitelistBtn.addEventListener('click', addQuickWhitelistRule);
+  }
+  const whitelistUrlInput = document.getElementById('whitelistUrlInput');
+  if (whitelistUrlInput) {
+    whitelistUrlInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        addQuickWhitelistRule();
+      }
+    });
+  }
+
+  const btnAddPhishingBtn = document.getElementById('btnAddPhishingBtn');
+  if (btnAddPhishingBtn) {
+    btnAddPhishingBtn.addEventListener('click', addQuickPhishingRule);
+  }
+  const phishingUrlInput = document.getElementById('phishingUrlInput');
+  if (phishingUrlInput) {
+    phishingUrlInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        addQuickPhishingRule();
+      }
+    });
+  }
+
+  const btnOpenNewRuleModal = document.getElementById('btnOpenNewRuleModal');
+  if (btnOpenNewRuleModal) {
+    btnOpenNewRuleModal.addEventListener('click', openNewRuleModal);
+  }
+
+  const ruleForm = document.getElementById('ruleForm');
+  if (ruleForm) {
+    ruleForm.addEventListener('submit', saveRuleForm);
+  }
 
   // Admin Logout
-  document.getElementById('btnAdminLogout').addEventListener('click', async () => {
-    try {
-      await apiFetch('/api/auth/logout', { method: 'POST' });
-    } catch {}
-    localStorage.removeItem('phishguard_admin_token');
-    currentAuthToken = '';
-    showToast('Logged out. Reconnecting as guest...');
-    autoAdminLogin();
-  });
+  const btnAdminLogout = document.getElementById('btnAdminLogout');
+  if (btnAdminLogout) {
+    btnAdminLogout.addEventListener('click', async () => {
+      try {
+        await apiFetch('/api/auth/logout', { method: 'POST' });
+      } catch {}
+      localStorage.removeItem('phishguard_admin_token');
+      currentAuthToken = '';
+      showToast('Logged out. Reconnecting as guest...');
+      autoAdminLogin();
+    });
+  }
 
   // Initial Load
   autoAdminLogin().then(() => {
