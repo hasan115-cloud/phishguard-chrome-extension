@@ -12,7 +12,7 @@ const PHISHGUARD_CONFIG = {
   MODES: {
     LOCALHOST: 'http://localhost:3000',
     LAN: 'http://localhost:3000',
-    REMOTE: 'https://ais-dev-edwrwsrecrzqlafgs46yj5-361661540763.asia-southeast1.run.app'
+    REMOTE: 'https://ais-dev-vxn2qexqgxdrppk4vf2id5-361661540763.asia-southeast1.run.app'
   },
 
   // Fleet enrollment token

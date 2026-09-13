@@ -195,6 +195,38 @@ router.post('/url-events', (req, res) => {
     typeof browserInfo === 'object' ? JSON.stringify(browserInfo) : (browserInfo || null)
   );
 
+  // Generate security alert if block or high threat
+  if (decision === 'BLOCK' || threatLevel === 'HIGH' || threatLevel === 'CRITICAL') {
+    const alertId = 'alt-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
+    db.prepare(`
+      INSERT INTO alerts (
+        id, client_id, system_name, event_id, alert_type,
+        severity, domain, url, reason, timestamp, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'NEW')
+    `).run(
+      alertId,
+      clientId,
+      clientName,
+      eventId,
+      decision === 'BLOCK' ? 'PHISHING_INTERCEPT' : 'HIGH_RISK_URL',
+      threatLevel || 'HIGH',
+      domain,
+      url,
+      reason || 'Threat detected on endpoint',
+      now
+    );
+
+    broadcast('SECURITY_ALERT', {
+      id: alertId,
+      clientId,
+      systemName: clientName,
+      domain,
+      severity: threatLevel || 'HIGH',
+      reason,
+      timestamp: now
+    });
+  }
+
   const eventRecord = {
     id: eventId,
     clientId,

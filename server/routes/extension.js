@@ -76,7 +76,7 @@ router.get('/download', (req, res) => {
     const isRemote = host && !host.includes('localhost') && !host.includes('127.0.0.1');
     const detectedRemoteUrl = isRemote
       ? `${protocol}://${host}`
-      : 'https://ais-dev-edwrwsrecrzqlafgs46yj5-361661540763.asia-southeast1.run.app';
+      : 'https://ais-dev-vxn2qexqgxdrppk4vf2id5-361661540763.asia-southeast1.run.app';
 
     // Find LAN IP
     let lanIp = '127.0.0.1';

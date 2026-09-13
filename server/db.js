@@ -5,7 +5,23 @@ import bcrypt from 'bcryptjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const DB_PATH = process.env.DATABASE_URL || path.join(__dirname, '..', 'phishguard.db');
+
+function resolveDatabasePath() {
+  if (process.env.VERCEL && !process.env.DATABASE_URL) {
+    return '/tmp/phishguard.db';
+  }
+  const raw = process.env.DATABASE_URL;
+  if (!raw) {
+    return path.join(__dirname, '..', 'phishguard.db');
+  }
+  if (raw.startsWith('file:')) {
+    const clean = raw.replace(/^file:\/\//, '').replace(/^file:/, '');
+    return path.resolve(process.cwd(), clean);
+  }
+  return path.resolve(process.cwd(), raw);
+}
+
+const DB_PATH = resolveDatabasePath();
 
 export const db = new DatabaseSync(DB_PATH);
 

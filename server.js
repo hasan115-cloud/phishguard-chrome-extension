@@ -88,7 +88,7 @@ app.get(['/api/config', '/api/extension/config'], (req, res) => {
   const isRemote = host && !host.includes('localhost') && !host.includes('127.0.0.1');
   const detectedRemoteUrl = isRemote
     ? `${protocol}://${host}`
-    : 'https://ais-dev-edwrwsrecrzqlafgs46yj5-361661540763.asia-southeast1.run.app';
+    : 'https://ais-dev-vxn2qexqgxdrppk4vf2id5-361661540763.asia-southeast1.run.app';
   
   const lanIp = getDetectedLanIp();
   const lanUrl = lanIp !== '127.0.0.1' ? `http://${lanIp}:${PORT}` : `http://localhost:${PORT}`;
@@ -287,26 +287,28 @@ app.get('/api/recent', (req, res) => {
   res.json({ recent: events });
 });
 
-// Periodic background task to transition inactive clients to OFFLINE
-setInterval(() => {
-  try {
-    const timeoutRow = db.prepare("SELECT value FROM system_config WHERE key = 'HEARTBEAT_TIMEOUT_SECONDS'").get();
-    const timeoutSec = timeoutRow ? parseInt(timeoutRow.value, 10) || 90 : 90;
-    const thresholdDate = new Date(Date.now() - (timeoutSec * 1000)).toISOString();
+// Periodic background task to transition inactive clients to OFFLINE (standalone/container mode)
+if (!process.env.VERCEL) {
+  setInterval(() => {
+    try {
+      const timeoutRow = db.prepare("SELECT value FROM system_config WHERE key = 'HEARTBEAT_TIMEOUT_SECONDS'").get();
+      const timeoutSec = timeoutRow ? parseInt(timeoutRow.value, 10) || 90 : 90;
+      const thresholdDate = new Date(Date.now() - (timeoutSec * 1000)).toISOString();
 
-    const result = db.prepare(`
-      UPDATE clients
-      SET status = 'OFFLINE'
-      WHERE status = 'ONLINE' AND last_seen < ?
-    `).run(thresholdDate);
+      const result = db.prepare(`
+        UPDATE clients
+        SET status = 'OFFLINE'
+        WHERE status = 'ONLINE' AND last_seen < ?
+      `).run(thresholdDate);
 
-    if (result.changes > 0) {
-      broadcast('CLIENT_STATUS_REFRESH', { offlineCount: result.changes });
+      if (result.changes > 0) {
+        broadcast('CLIENT_STATUS_REFRESH', { offlineCount: result.changes });
+      }
+    } catch (err) {
+      console.debug('Heartbeat audit note:', err.message);
     }
-  } catch (err) {
-    console.debug('Heartbeat audit note:', err.message);
-  }
-}, 30000);
+  }, 30000);
+}
 
 // Serve static extension and web application files
 app.use(express.static(__dirname));
@@ -316,7 +318,11 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// Start listening on port 3000
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`[PhishGuard] Central Enterprise Security Server listening on http://0.0.0.0:${PORT}`);
-});
+// Start listening on port 3000 when running as standalone server
+if (!process.env.VERCEL) {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`[FortiNex] Central Enterprise Security Server listening on http://0.0.0.0:${PORT}`);
+  });
+}
+
+export default app;

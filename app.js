@@ -55,6 +55,52 @@ function showToast(text, icon = 'ℹ️') {
   }, 3500);
 }
 
+// Global UI Formatting & Badge Helpers (declared top-level for all renderers)
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function getClassificationBadge(decision, threatLevel) {
+  const d = (decision || '').toUpperCase();
+  const t = (threatLevel || '').toUpperCase();
+  if (d === 'BLOCK' || t === 'CRITICAL' || t === 'HIGH') {
+    return '<span class="badge-pill badge-block">PHISHING</span>';
+  }
+  if (d === 'WARNING' || t === 'MEDIUM') {
+    return '<span class="badge-pill badge-warning">SUSPICIOUS</span>';
+  }
+  return '<span class="badge-pill badge-allow">SAFE</span>';
+}
+
+function getDecisionBadge(decision) {
+  const d = (decision || 'ALLOW').toUpperCase();
+  if (d === 'BLOCK') return '<span class="badge-pill badge-block">🛑 BLOCK</span>';
+  if (d === 'WARNING') return '<span class="badge-pill badge-warning">⚠️ WARNING</span>';
+  return '<span class="badge-pill badge-allow">🛡️ ALLOW</span>';
+}
+
+function getThreatBadge(level) {
+  const l = (level || 'SAFE').toUpperCase();
+  if (l === 'CRITICAL') return '<span class="badge-pill badge-critical">CRITICAL</span>';
+  if (l === 'HIGH') return '<span class="badge-pill badge-block">HIGH</span>';
+  if (l === 'MEDIUM') return '<span class="badge-pill badge-warning">MEDIUM</span>';
+  if (l === 'LOW') return '<span class="badge-pill" style="background:#1e293b; color:#94a3b8;">LOW</span>';
+  return '<span class="badge-pill badge-allow">SAFE</span>';
+}
+
+function getAlertStatusBadge(status) {
+  const s = (status || 'NEW').toUpperCase();
+  if (s === 'NEW') return '<span class="badge-pill badge-block">NEW</span>';
+  if (s === 'ACKNOWLEDGED') return '<span class="badge-pill badge-warning">ACKNOWLEDGED</span>';
+  return '<span class="badge-pill badge-allow">RESOLVED</span>';
+}
+
 // Auth API call wrapper
 async function apiFetch(url, options = {}) {
   const headers = options.headers || {};
@@ -180,6 +226,62 @@ async function loadOverviewStats() {
 // -------------------------------------------------------------
 // 2. ENROLLED SYSTEMS (FLEET)
 // -------------------------------------------------------------
+let allLoadedSystems = [];
+
+function renderSystemsTable(systems) {
+  const tbody = document.getElementById('systemsTableBody');
+  if (!tbody) return;
+
+  const searchInput = document.getElementById('filterSystemSearch');
+  const statusFilter = document.getElementById('filterSystemStatus');
+  const searchVal = searchInput ? searchInput.value.trim().toLowerCase() : '';
+  const statusVal = statusFilter ? statusFilter.value : '';
+
+  let filtered = systems || [];
+  if (searchVal) {
+    filtered = filtered.filter(c =>
+      (c.system_name && c.system_name.toLowerCase().includes(searchVal)) ||
+      (c.client_id && c.client_id.toLowerCase().includes(searchVal)) ||
+      (c.hostname && c.hostname.toLowerCase().includes(searchVal)) ||
+      (c.ip_address && c.ip_address.toLowerCase().includes(searchVal))
+    );
+  }
+  if (statusVal) {
+    filtered = filtered.filter(c => c.status === statusVal);
+  }
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:20px;">No systems found matching filters.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(c => {
+    const isOnline = c.status === 'ONLINE';
+    const statusBadge = isOnline
+      ? '<span class="badge-pill badge-online">● Online</span>'
+      : '<span class="badge-pill badge-offline">○ Offline</span>';
+
+    return `
+      <tr>
+        <td>${statusBadge}</td>
+        <td><strong>${escapeHtml(c.system_name)}</strong><br><small style="color:var(--text-muted);">${escapeHtml(c.hostname || 'workstation')}</small></td>
+        <td><code style="color:#38bdf8;">${escapeHtml(c.client_id)}</code></td>
+        <td>${escapeHtml(c.os || 'Desktop')}<br><small style="color:var(--text-muted);">${escapeHtml(c.browser || 'Chrome')}</small></td>
+        <td>${escapeHtml(c.extension_version || '1.4')}</td>
+        <td><code>${escapeHtml(c.ip_address || '127.0.0.1')}</code></td>
+        <td>${new Date(c.last_seen).toLocaleString()}</td>
+        <td>${c.totalEvents || 0} / <span style="color:#ef4444; font-weight:600;">${c.blockedCount || 0}</span></td>
+        <td>
+          <div style="display:flex; gap:6px;">
+            <button class="btn-header" onclick="viewClientDetail('${escapeHtml(c.client_id)}')">Inspect</button>
+            <button class="btn-header" style="color:#ef4444;" onclick="deleteClient('${escapeHtml(c.client_id)}')" title="Decommission">✕</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
 async function loadSystems() {
   const tbody = document.getElementById('systemsTableBody');
   tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding:20px;">Refreshing fleet systems...</td></tr>';
@@ -188,6 +290,7 @@ async function loadSystems() {
     const res = await fetch('/api/clients');
     const data = await res.json();
     const clients = data.clients || [];
+    allLoadedSystems = clients;
 
     // Populate client filter dropdowns
     const clientSelect = document.getElementById('urlHistoryClientSelect');
@@ -197,35 +300,11 @@ async function loadSystems() {
     }
 
     if (clients.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:20px;">No systems enrolled yet. Deploy the extension to enroll workstations.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:20px;">No systems connected yet. Deploy the FortiNex PhishGuard extension to enroll workstations.</td></tr>';
       return;
     }
 
-    tbody.innerHTML = clients.map(c => {
-      const isOnline = c.status === 'ONLINE';
-      const statusBadge = isOnline
-        ? '<span class="badge-pill badge-online">● Online</span>'
-        : '<span class="badge-pill badge-offline">○ Offline</span>';
-
-      return `
-        <tr>
-          <td>${statusBadge}</td>
-          <td><strong>${escapeHtml(c.system_name)}</strong><br><small style="color:var(--text-muted);">${escapeHtml(c.hostname || 'workstation')}</small></td>
-          <td><code style="color:#38bdf8;">${escapeHtml(c.client_id)}</code></td>
-          <td>${escapeHtml(c.os || 'Desktop')}<br><small style="color:var(--text-muted);">${escapeHtml(c.browser || 'Chrome')}</small></td>
-          <td>${escapeHtml(c.extension_version || '1.4')}</td>
-          <td><code>${escapeHtml(c.ip_address || '127.0.0.1')}</code></td>
-          <td>${new Date(c.last_seen).toLocaleString()}</td>
-          <td>${c.totalEvents || 0} / <span style="color:#ef4444; font-weight:600;">${c.blockedCount || 0}</span></td>
-          <td>
-            <div style="display:flex; gap:6px;">
-              <button class="btn-header" onclick="viewClientDetail('${c.client_id}')">Inspect</button>
-              <button class="btn-header" style="color:#ef4444;" onclick="deleteClient('${c.client_id}')" title="Decommission">✕</button>
-            </div>
-          </td>
-        </tr>
-      `;
-    }).join('');
+    renderSystemsTable(allLoadedSystems);
   } catch (err) {
     tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:#ef4444;">Failed to load systems fleet.</td></tr>';
   }
@@ -383,8 +462,26 @@ function initSse() {
 
   sseSource.onerror = () => {
     if (dot) dot.classList.add('disconnected');
-    if (label) label.textContent = 'Reconnecting...';
+    if (label) label.textContent = 'Sync (Polling active)';
   };
+
+  // Resilient Polling Fallback (Vercel serverless & offline friendly)
+  // Automatically refreshes active tab every 15s even if long-lived SSE connection is unavailable
+  if (!window._dashboardPollingTimer) {
+    window._dashboardPollingTimer = setInterval(() => {
+      try {
+        if (document.getElementById('tab-overview')?.classList.contains('active')) {
+          loadOverviewStats();
+        } else if (document.getElementById('tab-systems')?.classList.contains('active')) {
+          loadSystems();
+        } else if (document.getElementById('tab-alerts')?.classList.contains('active')) {
+          loadAlerts();
+        }
+      } catch (err) {
+        console.debug('Dashboard background poll skipped:', err);
+      }
+    }, 15000);
+  }
 
   // URL Event listener
   sseSource.addEventListener('URL_EVENT', (e) => {
@@ -704,7 +801,7 @@ async function loadAlerts() {
     const alerts = data.alerts || [];
 
     if (alerts.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:20px;">No alerts match filter criteria.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:20px;">No security alerts recorded yet.</td></tr>';
       return;
     }
 
@@ -1281,42 +1378,6 @@ async function runManualCheckUrl(e) {
     badge.innerHTML = '<span class="badge-pill badge-block">ERROR</span>';
     reasonEl.textContent = err.message;
   }
-}
-
-// -------------------------------------------------------------
-// Helpers & Utilities
-// -------------------------------------------------------------
-function getDecisionBadge(decision) {
-  const d = (decision || 'ALLOW').toUpperCase();
-  if (d === 'BLOCK') return '<span class="badge-pill badge-block">🛑 BLOCK</span>';
-  if (d === 'WARNING') return '<span class="badge-pill badge-warning">⚠️ WARNING</span>';
-  return '<span class="badge-pill badge-allow">🛡️ ALLOW</span>';
-}
-
-function getThreatBadge(level) {
-  const l = (level || 'SAFE').toUpperCase();
-  if (l === 'CRITICAL') return '<span class="badge-pill badge-critical">CRITICAL</span>';
-  if (l === 'HIGH') return '<span class="badge-pill badge-block">HIGH</span>';
-  if (l === 'MEDIUM') return '<span class="badge-pill badge-warning">MEDIUM</span>';
-  if (l === 'LOW') return '<span class="badge-pill" style="background:#1e293b; color:#94a3b8;">LOW</span>';
-  return '<span class="badge-pill badge-allow">SAFE</span>';
-}
-
-function getAlertStatusBadge(status) {
-  const s = (status || 'NEW').toUpperCase();
-  if (s === 'NEW') return '<span class="badge-pill badge-block">NEW</span>';
-  if (s === 'ACKNOWLEDGED') return '<span class="badge-pill badge-warning">ACKNOWLEDGED</span>';
-  return '<span class="badge-pill badge-allow">RESOLVED</span>';
-}
-
-function escapeHtml(str) {
-  if (!str) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
 }
 
 // -------------------------------------------------------------
